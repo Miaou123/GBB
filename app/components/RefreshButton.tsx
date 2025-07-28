@@ -57,6 +57,13 @@ export default function RefreshButton({ onRefresh, loading, lastUpdated }: Refre
           {formatLastUpdated(lastUpdated)}
         </div>
       )}
+      
+      {loading && (
+        <div className="text-sm text-blue-600 flex items-center">
+          <div className="loading-spinner w-4 h-4 mr-2"></div>
+          Scraping en cours...
+        </div>
+      )}
     </div>
   );
 }
