@@ -1,3 +1,4 @@
+// lib/types.ts
 export interface JobOffer {
   id: string;
   companyName: string;
@@ -17,6 +18,7 @@ export interface ApiResponse {
   jobs: JobOffer[];
   lastUpdated: string;
   totalCount: number;
+  source: 'database' | 'mock'; // Add this line
 }
 
 export interface FilterProps {

@@ -1,6 +1,9 @@
+// app/api/jobs/route.ts
 import { NextResponse } from 'next/server';
-import { mockJobs } from '@/lib/mockData';
+import { JobService } from '@/lib/services/jobService';
 import { ApiResponse } from '@/lib/types';
+
+const jobService = new JobService();
 
 export async function GET(request: Request) {
   try {
@@ -9,18 +12,49 @@ export async function GET(request: Request) {
     const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
     const search = searchParams.get('search') || '';
 
+    // Get jobs from database
+    const jobs = await jobService.getJobs({
+      companies: companies.length > 0 ? companies : undefined,
+      locations: locations.length > 0 ? locations : undefined,
+      search: search || undefined
+    });
+
+    // Convert MongoDB documents to JobOffer format
+    const jobOffers = jobs.map(job => ({
+      id: job.id,
+      companyName: job.companyName,
+      jobTitle: job.jobTitle,
+      location: job.location,
+      publishDate: job.publishDate,
+      url: job.url
+    }));
+
+    const response: ApiResponse = {
+      jobs: jobOffers,
+      lastUpdated: new Date().toISOString(),
+      totalCount: jobOffers.length,
+      source: 'database'
+    };
+
+    return NextResponse.json(response);
+  } catch (error) {
+    console.error('Error fetching jobs from database:', error);
+    
+    // Fallback to mock data if database fails
+    const { mockJobs } = await import('@/lib/mockData');
+    
     let filteredJobs = [...mockJobs];
+    const { searchParams } = new URL(request.url);
+    const companies = searchParams.get('companies')?.split(',').filter(Boolean) || [];
+    const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
+    const search = searchParams.get('search') || '';
 
     if (companies.length > 0) {
-      filteredJobs = filteredJobs.filter(job => 
-        companies.includes(job.companyName)
-      );
+      filteredJobs = filteredJobs.filter(job => companies.includes(job.companyName));
     }
 
     if (locations.length > 0) {
-      filteredJobs = filteredJobs.filter(job => 
-        locations.includes(job.location)
-      );
+      filteredJobs = filteredJobs.filter(job => locations.includes(job.location));
     }
 
     if (search) {
@@ -32,19 +66,31 @@ export async function GET(request: Request) {
       );
     }
 
-    filteredJobs.sort((a, b) => a.companyName.localeCompare(b.companyName));
-
     const response: ApiResponse = {
       jobs: filteredJobs,
       lastUpdated: new Date().toISOString(),
-      totalCount: filteredJobs.length
+      totalCount: filteredJobs.length,
+      source: 'mock'
     };
 
     return NextResponse.json(response);
+  }
+}
+
+// New endpoint for scraping data
+export async function POST(request: Request) {
+  try {
+    const { company } = await request.json();
+    
+    // This will be implemented when we add scrapers
+    return NextResponse.json({ 
+      message: `Scraping initiated for ${company}`,
+      status: 'pending'
+    });
   } catch (error) {
-    console.error('Error fetching jobs:', error);
+    console.error('Error initiating scraping:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to initiate scraping' },
       { status: 500 }
     );
   }
