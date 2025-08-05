@@ -17,16 +17,20 @@ interface UsePaginationReturn<T> {
   goToLastPage: () => void;
   goToNextPage: () => void;
   goToPreviousPage: () => void;
+  canGoToNextPage: boolean;
+  canGoToPreviousPage: boolean;
 }
 
 export function usePagination<T>({
   data,
-  initialPageSize = 100
+  initialPageSize = 25
 }: UsePaginationProps<T>): UsePaginationReturn<T> {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
 
-  const totalPages = Math.ceil(data.length / pageSize);
+  const totalPages = useMemo(() => {
+    return Math.ceil(data.length / pageSize);
+  }, [data.length, pageSize]);
 
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;
@@ -34,10 +38,12 @@ export function usePagination<T>({
     return data.slice(startIndex, endIndex);
   }, [data, currentPage, pageSize]);
 
+  const canGoToNextPage = currentPage < totalPages;
+  const canGoToPreviousPage = currentPage > 1;
+
   const handleSetCurrentPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
+    const clampedPage = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(clampedPage);
   };
 
   const handleSetPageSize = (size: number) => {
@@ -48,8 +54,16 @@ export function usePagination<T>({
 
   const goToFirstPage = () => setCurrentPage(1);
   const goToLastPage = () => setCurrentPage(totalPages);
-  const goToNextPage = () => handleSetCurrentPage(currentPage + 1);
-  const goToPreviousPage = () => handleSetCurrentPage(currentPage - 1);
+  const goToNextPage = () => {
+    if (canGoToNextPage) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+  const goToPreviousPage = () => {
+    if (canGoToPreviousPage) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
 
   return {
     currentPage,
@@ -61,6 +75,8 @@ export function usePagination<T>({
     goToFirstPage,
     goToLastPage,
     goToNextPage,
-    goToPreviousPage
+    goToPreviousPage,
+    canGoToNextPage,
+    canGoToPreviousPage
   };
 }

@@ -81,55 +81,53 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
     if (sortField !== field) {
       return (
         <svg className="w-4 h-4 ml-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6-2v12m0 0l4-4m-4 4l-4-4" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 2v12m0 0l4-4m-4 4l-4-4" />
         </svg>
       );
     }
     
     return sortDirection === 'asc' ? (
-      <svg className="w-4 h-4 ml-1 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      <svg className="w-4 h-4 ml-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4l6 6h8l6-6" />
       </svg>
     ) : (
-      <svg className="w-4 h-4 ml-1 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+      <svg className="w-4 h-4 ml-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 20l-6-6H7l-6 6" />
       </svg>
     );
   };
 
   if (loading) {
     return (
-      <div className="card p-8">
-        <div className="flex items-center justify-center">
-          <div className="loading-spinner w-8 h-8"></div>
-          <span className="ml-3 text-gray-600">Chargement des offres...</span>
-        </div>
+      <div className="text-center py-12">
+        <div className="loading-spinner w-8 h-8 mx-auto mb-4"></div>
+        <p className="text-gray-600">Chargement des offres d'emploi...</p>
       </div>
     );
   }
 
   if (jobs.length === 0) {
     return (
-      <div className="card p-8 text-center">
-        <div className="text-gray-500 text-lg">Aucune offre d&apos;emploi trouvée</div>
-        <div className="text-gray-400 text-sm mt-2">
-          Essayez de modifier vos filtres ou votre recherche
-        </div>
+      <div className="text-center py-12">
+        <p className="text-gray-600 text-lg mb-2">Aucune offre trouvée</p>
+        <p className="text-gray-500 text-sm">Essayez de modifier vos filtres ou votre recherche</p>
       </div>
     );
   }
 
   return (
-    <div className="card overflow-hidden">
-      {/* Page size selector */}
-      <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-        <div className="text-sm text-gray-600">
-          {jobs.length} offre{jobs.length > 1 ? 's' : ''} trouvée{jobs.length > 1 ? 's' : ''}
+    <div>
+      {/* Table Controls */}
+      <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-b border-gray-200">
+        <div className="flex items-center space-x-4">
+          <span className="text-sm text-gray-700 font-medium">
+            {sortedJobs.length} offres trouvées
+          </span>
         </div>
         <PageSizeSelector
           pageSize={pageSize}
           onPageSizeChange={setPageSize}
-          totalItems={jobs.length}
+          totalItems={sortedJobs.length}
         />
       </div>
 
@@ -180,15 +178,15 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {paginatedData.map((job: JobOffer) => (
-              <tr key={job.id} className="hover:bg-gray-50 transition-colors duration-200">
-                <td className="table-cell font-medium text-gray-900">
+            {paginatedData.map((job, index) => (
+              <tr key={job.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                <td className="table-cell font-medium">
                   {job.companyName}
                 </td>
                 <td className="table-cell">
                   {job.jobTitle}
                 </td>
-                <td className="table-cell text-gray-600">
+                <td className="table-cell">
                   {formatDate(job.publishDate)}
                 </td>
                 <td className="table-cell">
@@ -199,10 +197,10 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
                     href={job.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary-600 hover:text-primary-800 font-medium inline-flex items-center transition-colors duration-200"
+                    className="text-blue-600 hover:text-blue-800 hover:underline transition-colors duration-200"
                   >
-                    Voir l&apos;offre
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    Voir l'offre
+                    <svg className="w-3 h-3 ml-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
                   </a>
@@ -214,13 +212,15 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
       </div>
 
       {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={jobs.length}
-        itemsPerPage={pageSize}
-      />
+      {totalPages > 1 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={sortedJobs.length}
+          itemsPerPage={pageSize}
+        />
+      )}
     </div>
   );
 }

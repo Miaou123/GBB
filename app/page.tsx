@@ -86,9 +86,7 @@ export default function HomePage() {
 
   // Fetch when filters change
   useEffect(() => {
-    if (filters.companies.length > 0 || filters.locations.length > 0 || searchTerm) {
-      fetchJobs();
-    }
+    fetchJobs();
   }, [fetchJobs]);
 
   // Debounced search
@@ -131,90 +129,95 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Go Get Business - Offres d'emploi Tech
-          </h1>
-          <p className="text-gray-600">
-            Découvrez les dernières opportunités dans les entreprises tech françaises
-          </p>
-          
-          {/* Cache Status (for debugging) */}
-          {cacheStatus && (
-            <div className="mt-2 text-sm text-gray-500">
-              {cacheStatus.cached ? (
-                <span>
-                  📋 Données en cache ({cacheStatus.jobCount} jobs, 
-                  mise à jour il y a {cacheStatus.age}s, 
-                  expire dans {cacheStatus.remainingTime}s)
-                </span>
-              ) : (
-                <span>🔄 Données fraîches depuis le scraping</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Controls */}
-        <div className="mb-6 space-y-4">
-          {/* Search and Actions */}
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="flex-1 max-w-md">
+      {/* Main Layout - Sidebar + Content */}
+      <div className="flex min-h-screen">
+        {/* Left Sidebar */}
+        <div className="w-80 bg-white shadow-sm border-r border-gray-200 flex-shrink-0">
+          <div className="p-6 h-full overflow-y-auto">
+            {/* Search Section */}
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-3">Recherche</h2>
               <input
                 type="text"
                 placeholder="Rechercher par entreprise, poste ou lieu..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field"
+                className="input-field w-full"
               />
             </div>
-            
-            <div className="flex gap-2">
-              <RefreshButton onRefresh={handleRefresh} loading={loading} />
-              <button
-                onClick={handleExport}
-                disabled={filteredJobs.length === 0}
-                className="btn-outline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Exporter CSV
-              </button>
+
+            {/* Company Filter */}
+            <div className="mb-6">
+              <ClientFilter
+                selectedItems={filters.companies}
+                allItems={uniqueCompanies}
+                onChange={handleCompanyFilter}
+                title="Entreprises"
+              />
             </div>
-          </div>
 
-          {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-4">
-            <ClientFilter
-              selectedItems={filters.companies}
-              allItems={uniqueCompanies}
-              onChange={handleCompanyFilter}
-              title="Entreprises"
-            />
-            <LocationFilter
-              selectedItems={filters.locations}
-              allItems={uniqueLocations}
-              onChange={handleLocationFilter}
-              title="Localisations"
-            />
-          </div>
+            {/* Location Filter */}
+            <div className="mb-6">
+              <LocationFilter
+                selectedItems={filters.locations}
+                allItems={uniqueLocations}
+                onChange={handleLocationFilter}
+                title="Localisations"
+              />
+            </div>
 
-          {/* Results Summary */}
-          <div className="flex items-center justify-between text-sm text-gray-600">
-            <span>
-              {loading ? 'Chargement...' : `${filteredJobs.length} offre${filteredJobs.length > 1 ? 's' : ''} trouvée${filteredJobs.length > 1 ? 's' : ''}`}
-            </span>
-            {lastUpdated && (
-              <span>
-                Dernière mise à jour : {new Date(lastUpdated).toLocaleString('fr-FR')}
-              </span>
+            {/* Cache Status */}
+            {cacheStatus && (
+              <div className="text-xs text-gray-500 mt-4 p-2 bg-gray-50 rounded">
+                {cacheStatus.cached ? (
+                  <span>
+                    📋 Données en cache ({cacheStatus.jobCount} jobs, 
+                    mise à jour il y a {cacheStatus.age}s, 
+                    expire dans {cacheStatus.remainingTime}s)
+                  </span>
+                ) : (
+                  <span>🔄 Données fraîches depuis le scraping</span>
+                )}
+              </div>
             )}
           </div>
         </div>
 
-        {/* Job Table */}
-        <div className="card">
-          <JobTable jobs={filteredJobs} loading={loading} />
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top Actions Bar */}
+          <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <RefreshButton onRefresh={handleRefresh} loading={loading} />
+                {lastUpdated && (
+                  <span className="text-sm text-gray-500">
+                    Dernière mise à jour : {new Date(lastUpdated).toLocaleString('fr-FR')}
+                  </span>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-600">
+                  {loading ? 'Chargement...' : `${filteredJobs.length} offres sur ${allJobs.length}`}
+                </span>
+                <button
+                  onClick={handleExport}
+                  disabled={filteredJobs.length === 0}
+                  className="btn-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Exporter CSV
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Job Table Content */}
+          <div className="flex-1 p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+              <JobTable jobs={filteredJobs} loading={loading} />
+            </div>
+          </div>
         </div>
       </div>
     </div>

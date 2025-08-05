@@ -1,9 +1,9 @@
 // app/api/jobs/route.ts
 import { NextResponse } from 'next/server';
-import { JobService } from '@/lib/services/jobService';
-import { ApiResponse } from '@/lib/types';
+import { ScraperService, ScrapedJob } from '@/lib/services/scraperService';
+import { JobOffer, ApiResponse } from '@/lib/types';
 
-const jobService = new JobService();
+const scraperService = new ScraperService();
 
 export async function GET(request: Request) {
   try {
@@ -11,16 +11,15 @@ export async function GET(request: Request) {
     const companies = searchParams.get('companies')?.split(',').filter(Boolean) || [];
     const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
     const search = searchParams.get('search') || '';
+    const forceRefresh = searchParams.get('refresh') === 'true';
 
-    // Get jobs from database
-    const jobs = await jobService.getJobs({
-      companies: companies.length > 0 ? companies : undefined,
-      locations: locations.length > 0 ? locations : undefined,
-      search: search || undefined
-    });
+    console.log('🔍 API: Fetching jobs with filters:', { companies, locations, search, forceRefresh });
 
-    // Convert MongoDB documents to JobOffer format
-    const jobOffers = jobs.map(job => ({
+    // Get all jobs from scrapers (use cache unless force refresh)
+    const scrapedJobs: ScrapedJob[] = await scraperService.getAllJobs(!forceRefresh);
+
+    // Convert scraped jobs to JobOffer format
+    let jobOffers: JobOffer[] = scrapedJobs.map(job => ({
       id: job.id,
       companyName: job.companyName,
       jobTitle: job.jobTitle,
@@ -29,18 +28,43 @@ export async function GET(request: Request) {
       url: job.url
     }));
 
+    // Apply filters
+    if (companies.length > 0) {
+      jobOffers = jobOffers.filter(job => companies.includes(job.companyName));
+    }
+
+    if (locations.length > 0) {
+      jobOffers = jobOffers.filter(job => locations.includes(job.location));
+    }
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      jobOffers = jobOffers.filter(job =>
+        job.companyName.toLowerCase().includes(searchLower) ||
+        job.jobTitle.toLowerCase().includes(searchLower) ||
+        job.location.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Get cache status for debugging
+    const cacheStatus = scraperService.getCacheStatus();
+    
     const response: ApiResponse = {
       jobs: jobOffers,
       lastUpdated: new Date().toISOString(),
       totalCount: jobOffers.length,
-      source: 'database'
+      source: 'scraping',
+      cacheStatus
     };
 
-    return NextResponse.json(response);
-  } catch (error) {
-    console.error('Error fetching jobs from database:', error);
+    console.log(`✅ API: Returning ${jobOffers.length} jobs (cache: ${cacheStatus.cached})`);
     
-    // Fallback to mock data if database fails
+    return NextResponse.json(response);
+
+  } catch (error) {
+    console.error('❌ API Error:', error);
+    
+    // Fallback to mock data if everything fails
     const { mockJobs } = await import('@/lib/mockData');
     
     let filteredJobs = [...mockJobs];
@@ -49,6 +73,7 @@ export async function GET(request: Request) {
     const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
     const search = searchParams.get('search') || '';
 
+    // Apply same filters to mock data
     if (companies.length > 0) {
       filteredJobs = filteredJobs.filter(job => companies.includes(job.companyName));
     }
@@ -70,28 +95,9 @@ export async function GET(request: Request) {
       jobs: filteredJobs,
       lastUpdated: new Date().toISOString(),
       totalCount: filteredJobs.length,
-      source: 'mock'
+      source: 'mock-fallback'
     };
 
     return NextResponse.json(response);
-  }
-}
-
-// New endpoint for scraping data
-export async function POST(request: Request) {
-  try {
-    const { company } = await request.json();
-    
-    // This will be implemented when we add scrapers
-    return NextResponse.json({ 
-      message: `Scraping initiated for ${company}`,
-      status: 'pending'
-    });
-  } catch (error) {
-    console.error('Error initiating scraping:', error);
-    return NextResponse.json(
-      { error: 'Failed to initiate scraping' },
-      { status: 500 }
-    );
   }
 }

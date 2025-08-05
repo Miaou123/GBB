@@ -19,7 +19,7 @@ export default function PageSizeSelector({ pageSize, onPageSizeChange, totalItem
         id="pageSize"
         value={pageSize}
         onChange={(e) => onPageSizeChange(Number(e.target.value))}
-        className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+        className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
       >
         {options.map((option) => (
           <option key={option} value={option}>
