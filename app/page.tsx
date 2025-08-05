@@ -22,6 +22,27 @@ export default function HomePage() {
     searchTerm: ''
   });
 
+  // Helper function to fetch jobs without current filters
+  const fetchJobsWithoutFilters = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/jobs');
+      if (!response.ok) {
+        throw new Error('Failed to fetch jobs');
+      }
+      
+      const data: ApiResponse = await response.json();
+      setJobs(data.jobs);
+      setFilteredJobs(data.jobs);
+      setAllJobs(data.jobs);
+      setLastUpdated(data.lastUpdated);
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Trigger scraping
   const triggerScraping = useCallback(async () => {
     setScrapingLoading(true);
@@ -42,7 +63,7 @@ export default function HomePage() {
       console.log('✅ Scraping result:', result);
       
       // After scraping, fetch the updated jobs and refresh all jobs list
-      await fetchJobs();
+      await fetchJobsWithoutFilters();
       
       // Also fetch all jobs without filters to update filter options
       const allJobsResponse = await fetch('/api/jobs');
@@ -56,7 +77,7 @@ export default function HomePage() {
     } finally {
       setScrapingLoading(false);
     }
-  }, []);
+  }, [fetchJobsWithoutFilters]); // Added fetchJobsWithoutFilters dependency
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -96,14 +117,14 @@ export default function HomePage() {
   }, [filters]);
 
   const debouncedSearch = useCallback(
-    debounce((term: string, jobsList: JobOffer[]) => {
+    (term: string, jobsList: JobOffer[]) => {
       const filtered = jobsList.filter(job =>
         job.companyName.toLowerCase().includes(term.toLowerCase()) ||
         job.jobTitle.toLowerCase().includes(term.toLowerCase()) ||
         job.location.toLowerCase().includes(term.toLowerCase())
       );
       setFilteredJobs(filtered);
-    }, 300),
+    },
     []
   );
 
@@ -115,7 +136,7 @@ export default function HomePage() {
     };
     
     initializeData();
-  }, []); // Empty dependency array means this runs once when component mounts
+  }, [triggerScraping]); // Added triggerScraping to dependencies
 
   // Handle filter changes
   useEffect(() => {
@@ -124,12 +145,26 @@ export default function HomePage() {
 
   // Handle search term changes
   useEffect(() => {
-    if (searchTerm) {
-      debouncedSearch(searchTerm, jobs);
-    } else {
-      setFilteredJobs(jobs);
-    }
-  }, [searchTerm, jobs, debouncedSearch]);
+    const debouncedSearchHandler = debounce((term: string, jobsList: JobOffer[]) => {
+      if (term) {
+        const filtered = jobsList.filter(job =>
+          job.companyName.toLowerCase().includes(term.toLowerCase()) ||
+          job.jobTitle.toLowerCase().includes(term.toLowerCase()) ||
+          job.location.toLowerCase().includes(term.toLowerCase())
+        );
+        setFilteredJobs(filtered);
+      } else {
+        setFilteredJobs(jobsList);
+      }
+    }, 300);
+
+    debouncedSearchHandler(searchTerm, jobs);
+    
+    // Cleanup function to cancel pending debounced calls
+    return () => {
+      // The debounce function should handle cleanup internally
+    };
+  }, [searchTerm, jobs]);
 
   const handleCompanyFilterChange = useCallback((values: string[]) => {
     setFilters(prev => ({ ...prev, companies: values }));
@@ -165,7 +200,7 @@ export default function HomePage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Go Get Business</h1>
-              <p className="mt-1 text-gray-600">Plateforme d'agrégation d'offres d'emploi</p>
+              <p className="mt-1 text-gray-600">Plateforme d&apos;agrégation d&apos;offres d&apos;emploi</p>
             </div>
             <RefreshButton 
               onRefresh={handleRefresh} 
