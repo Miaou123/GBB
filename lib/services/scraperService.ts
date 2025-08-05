@@ -1,11 +1,11 @@
-// lib/services/scraperService.ts - Updated with duplicate prevention
+// lib/services/scraperService.ts
 import { JobDocument } from '../models/job';
+import { JobService } from './jobService';
 import { EstreemScraper } from '../scrapers/estreemScraper';
 import { InfomilScraper } from '../scrapers/infomilScraper';
 import { BPCEScraper } from '../scrapers/bpceScraper';
 import { AirFranceScraper } from '../scrapers/airfranceScraper';
 import { BergerLevraultScraper } from '../scrapers/bergerLevraultScraper';
-import { removeDuplicateJobs, normalizeJobData } from '../utils/jobUtils';
 
 export interface ScrapedJob {
   id: string;
@@ -25,68 +25,101 @@ export class ScraperService {
   private bpceScraper = new BPCEScraper();
   private airfranceScraper = new AirFranceScraper();
   private bergerLevraultScraper = new BergerLevraultScraper();
+  private jobService = new JobService();
   
-  // Convert scraped jobs to database format with normalization
+  // Convert scraped jobs to database format
   convertToJobDocument(scrapedJob: ScrapedJob): JobDocument {
-    const normalized = normalizeJobData(scrapedJob);
-    
     return {
-      id: normalized.id,
-      companyName: normalized.companyName,
-      jobTitle: normalized.jobTitle,
-      location: normalized.location,
-      publishDate: normalized.publishDate,
-      url: normalized.url,
-      source: normalized.source,
+      id: scrapedJob.id,
+      companyName: scrapedJob.companyName,
+      jobTitle: scrapedJob.jobTitle,
+      location: scrapedJob.location,
+      publishDate: scrapedJob.publishDate,
+      url: scrapedJob.url,
+      source: scrapedJob.source,
       scrapedAt: new Date(),
       isActive: true,
-      description: normalized.description,
-      contractType: normalized.contractType
+      description: scrapedJob.description,
+      contractType: scrapedJob.contractType
     };
   }
   
-  // Scrape all configured companies with duplicate prevention
-  async scrapeAllJobs(): Promise<JobDocument[]> {
+  // Scrape all configured companies with proper cleanup
+  async scrapeAllJobs(): Promise<{ newJobs: number; updatedJobs: number; deactivatedJobs: number }> {
+    console.log('🚀 Starting job scraping process...');
     console.log('🚀 Starting to scrape all jobs...');
     
-    const allJobs: JobDocument[] = [];
+    const results = {
+      newJobs: 0,
+      updatedJobs: 0,
+      deactivatedJobs: 0
+    };
     
     try {
-      // Scrape each company
-      const companies = [
-        { name: 'BPCE', scraper: this.bpceScraper },
-        { name: 'Estreem', scraper: this.estreemScraper },
-        { name: 'Infomil', scraper: this.infomilScraper },
-        { name: 'Air France', scraper: this.airfranceScraper },
-        { name: 'Berger Levrault', scraper: this.bergerLevraultScraper }
-      ];
+      // Scrape BPCE (Priority - has Open Data API)
+      await this.scrapeAndUpdateCompany('BPCE', this.bpceScraper, results);
       
-      for (const company of companies) {
-        try {
-          console.log(`📍 Scraping ${company.name}...`);
-          const jobs = await company.scraper.scrapeJobs();
-          const normalizedJobs = jobs.map(job => this.convertToJobDocument(job));
-          allJobs.push(...normalizedJobs);
-          console.log(`✅ ${company.name}: ${jobs.length} jobs processed`);
-        } catch (error) {
-          console.error(`❌ Error scraping ${company.name}:`, error);
-          // Continue with other companies even if one fails
-        }
-      }
+      // Scrape Estreem
+      await this.scrapeAndUpdateCompany('Estreem', this.estreemScraper, results);
       
-      // Remove duplicates across all scraped jobs
-      const uniqueJobs = removeDuplicateJobs(allJobs);
+      // Scrape Infomil
+      await this.scrapeAndUpdateCompany('Infomil', this.infomilScraper, results);
       
-      console.log(`🎉 Scraping complete: ${allJobs.length} total scraped, ${uniqueJobs.length} unique jobs`);
-      return uniqueJobs;
+      // Scrape Air France
+      await this.scrapeAndUpdateCompany('Air France', this.airfranceScraper, results);
+      
+      // Scrape Berger Levrault
+      await this.scrapeAndUpdateCompany('Berger Levrault', this.bergerLevraultScraper, results);
+      
+      console.log(`✅ Scraping completed: ${results.newJobs} new jobs, ${results.updatedJobs} updated jobs, ${results.deactivatedJobs} deactivated jobs`);
+      return results;
       
     } catch (error) {
       console.error('❌ Error in scrapeAllJobs:', error);
-      return allJobs; // Return what we have so far
+      return results;
     }
   }
   
-  // Scrape specific company with duplicate prevention
+  // Scrape a specific company and update database with cleanup
+  private async scrapeAndUpdateCompany(
+    companyName: string, 
+    scraper: EstreemScraper | InfomilScraper | BPCEScraper | AirFranceScraper | BergerLevraultScraper, 
+    results: { newJobs: number; updatedJobs: number; deactivatedJobs: number }
+  ): Promise<void> {
+    try {
+      console.log(`📍 Scraping ${companyName}...`);
+      
+      // Scrape current jobs
+      const scrapedJobs: ScrapedJob[] = await scraper.scrapeJobs();
+      const jobDocuments: JobDocument[] = scrapedJobs.map((job: ScrapedJob) => this.convertToJobDocument(job));
+      
+      if (jobDocuments.length > 0) {
+        // Step 1: Upsert all scraped jobs
+        console.log(`💾 Saving ${jobDocuments.length} jobs to database...`);
+        const upsertResult = await this.jobService.upsertJobs(jobDocuments);
+        
+        // Step 2: Mark old jobs as inactive (cleanup)
+        const activeJobIds = jobDocuments.map(job => job.id);
+        const deactivateResult = await this.jobService.markJobsInactive(companyName, activeJobIds);
+        
+        // Update counters
+        results.newJobs += upsertResult.upsertedCount || 0;
+        results.updatedJobs += upsertResult.modifiedCount || 0;
+        results.deactivatedJobs += deactivateResult.modifiedCount || 0;
+        
+        console.log(`✅ ${companyName}: ${jobDocuments.length} jobs processed`);
+        console.log(`🔄 Processing ${jobDocuments.length} jobs, ${jobDocuments.length} unique after deduplication`);
+        console.log(`✅ Upsert complete: ${upsertResult.upsertedCount || 0} new, ${upsertResult.modifiedCount || 0} updated`);
+      } else {
+        console.log(`⚠️ ${companyName}: No jobs found`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error scraping ${companyName}:`, error);
+    }
+  }
+  
+  // Scrape specific company
   async scrapeCompany(companyName: string): Promise<JobDocument[]> {
     console.log(`🔍 Scraping ${companyName}...`);
     
@@ -112,14 +145,21 @@ export class ScraperService {
           jobs = await this.bergerLevraultScraper.scrapeJobs();
           break;
         default:
-          throw new Error(`Unknown company: ${companyName}`);
+          console.log(`⚠️ Unknown company: ${companyName}`);
+          return [];
       }
       
-      const normalizedJobs = jobs.map(job => this.convertToJobDocument(job));
-      const uniqueJobs = removeDuplicateJobs(normalizedJobs);
+      const jobDocuments: JobDocument[] = jobs.map((job: ScrapedJob) => this.convertToJobDocument(job));
       
-      console.log(`✅ ${companyName}: ${jobs.length} scraped, ${uniqueJobs.length} unique`);
-      return uniqueJobs;
+      if (jobDocuments.length > 0) {
+        // Update database with cleanup
+        await this.jobService.upsertJobs(jobDocuments);
+        const activeJobIds = jobDocuments.map(job => job.id);
+        await this.jobService.markJobsInactive(companyName, activeJobIds);
+      }
+      
+      console.log(`✅ ${companyName}: ${jobDocuments.length} jobs processed`);
+      return jobDocuments;
       
     } catch (error) {
       console.error(`❌ Error scraping ${companyName}:`, error);
@@ -128,27 +168,35 @@ export class ScraperService {
   }
   
   // Get scraping statistics
-  async getScrapingStats(): Promise<{[key: string]: number}> {
-    const stats: {[key: string]: number} = {};
-    
-    const companies = [
-      { name: 'BPCE', scraper: this.bpceScraper },
-      { name: 'Estreem', scraper: this.estreemScraper },
-      { name: 'Infomil', scraper: this.infomilScraper },
-      { name: 'Air France', scraper: this.airfranceScraper },
-      { name: 'Berger Levrault', scraper: this.bergerLevraultScraper }
-    ];
-    
-    for (const company of companies) {
-      try {
-        const jobs = await company.scraper.scrapeJobs();
-        stats[company.name] = jobs.length;
-      } catch (error) {
-        console.error(`Error getting stats for ${company.name}:`, error);
-        stats[company.name] = 0;
-      }
+  async getScrapingStats(): Promise<{
+    totalActiveJobs: number;
+    jobsByCompany: { [company: string]: number };
+    lastScrapedAt: Date | null;
+  }> {
+    try {
+      const allJobs = await this.jobService.getJobs();
+      const jobsByCompany = await this.jobService.getJobsCountByCompany();
+      
+      let lastScrapedAt: Date | null = null;
+      allJobs.forEach((job: JobDocument) => {
+        if (job.scrapedAt && (!lastScrapedAt || job.scrapedAt > lastScrapedAt)) {
+          lastScrapedAt = job.scrapedAt;
+        }
+      });
+      
+      return {
+        totalActiveJobs: allJobs.length,
+        jobsByCompany,
+        lastScrapedAt
+      };
+      
+    } catch (error) {
+      console.error('❌ Error getting scraping stats:', error);
+      return {
+        totalActiveJobs: 0,
+        jobsByCompany: {},
+        lastScrapedAt: null
+      };
     }
-    
-    return stats;
   }
 }

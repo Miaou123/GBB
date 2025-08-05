@@ -1,12 +1,11 @@
-// lib/services/jobService.ts - Fixed version with correct logging interface
+// lib/services/jobService.ts
 import { getDatabase } from '../mongodb';
 import { JobDocument, CompanyDocument, ScrapingLogDocument } from '../models/job';
-import { generateJobId, normalizeJobData } from '../utils/jobUtils';
 
 export class JobService {
   private async getJobsCollection() {
     const db = await getDatabase();
-    return db.collection<JobDocument>('jobs');
+    return db.collection<JobDocument>('jobs'); // Changed from 'job_offers' to 'jobs'
   }
 
   private async getCompaniesCollection() {
@@ -60,88 +59,48 @@ export class JobService {
     return results;
   }
 
-  // Improved upsert with better duplicate detection
+  // Upsert jobs (insert new, update existing)
   async upsertJobs(jobs: JobDocument[]) {
     const collection = await this.getJobsCollection();
-    
-    // Normalize and deduplicate incoming jobs
-    const normalizedJobs = jobs.map(job => normalizeJobData(job));
-    const uniqueJobs = this.removeDuplicatesFromArray(normalizedJobs);
-    
-    console.log(`🔄 Processing ${jobs.length} jobs, ${uniqueJobs.length} unique after deduplication`);
-    
-    const operations = uniqueJobs.map(job => ({
+    const operations = jobs.map(job => ({
       updateOne: {
-        filter: { 
-          $or: [
-            { id: job.id },
-            // Also check for functional duplicates
-            {
-              companyName: job.companyName,
-              jobTitle: job.jobTitle,
-              location: job.location
-            }
-          ]
-        },
+        filter: { id: job.id },
         update: {
           $set: {
             ...job,
             scrapedAt: new Date(),
-            isActive: true,
-            lastUpdated: new Date()
-          },
-          $setOnInsert: {
-            createdAt: new Date()
+            isActive: true
           }
         },
         upsert: true
       }
     }));
 
-    const result = await collection.bulkWrite(operations);
-    
-    console.log(`✅ Upsert complete: ${result.upsertedCount} new, ${result.modifiedCount} updated`);
-    
-    return result;
+    return await collection.bulkWrite(operations);
   }
 
-  // Clean up old/inactive jobs
-  async cleanupOldJobs(companyName?: string, keepActiveIds?: string[]) {
+  // Mark jobs as inactive (for cleanup)
+  async markJobsInactive(companyName: string, activeJobIds: string[]) {
     const collection = await this.getJobsCollection();
     
-    const filter: any = {};
+    console.log(`🧹 Marking inactive jobs for ${companyName}. Active job IDs: ${activeJobIds.length}`);
     
-    if (companyName) {
-      filter.companyName = companyName;
-    }
-    
-    if (keepActiveIds?.length) {
-      filter.id = { $nin: keepActiveIds };
-    }
-    
-    // Mark as inactive instead of deleting
-    const result = await collection.updateMany(filter, {
-      $set: { 
-        isActive: false,
-        deactivatedAt: new Date()
+    const result = await collection.updateMany(
+      {
+        companyName,
+        id: { $nin: activeJobIds },
+        isActive: true
+      },
+      {
+        $set: { 
+          isActive: false,
+          deactivatedAt: new Date()
+        }
       }
-    });
+    );
     
-    console.log(`🧹 Cleanup: ${result.modifiedCount} jobs marked inactive`);
-    
+    console.log(`✅ Marked ${result.modifiedCount} old jobs as inactive for ${companyName}`);
     return result;
-  }
-
-  // Remove duplicates from array
-  private removeDuplicatesFromArray(jobs: JobDocument[]): JobDocument[] {
-    const seen = new Set<string>();
-    return jobs.filter(job => {
-      if (seen.has(job.id)) {
-        return false;
-      }
-      seen.add(job.id);
-      return true;
-    });
   }
 
   // Get unique companies and locations for filters
@@ -153,39 +112,60 @@ export class JobService {
       collection.distinct('location', { isActive: true })
     ]);
 
-    return { companies, locations };
+    return {
+      companies: companies.sort(),
+      locations: locations.sort()
+    };
   }
 
-  // Log scraping activities - Fixed interface
-  async logScraping(log: {
-    companyName: string;
-    status: 'success' | 'failed' | 'partial';
-    jobsFound: number;
-    errorMessage?: string;
-    duration: number;
-  }) {
+  // Log scraping activity
+  async logScraping(log: Omit<ScrapingLogDocument, '_id' | 'scrapedAt'>) {
     const collection = await this.getLogsCollection();
     return await collection.insertOne({
       ...log,
-      scrapedAt: new Date() // Add scrapedAt automatically
+      scrapedAt: new Date()
     });
   }
 
-  // Get database statistics
-  async getStats() {
-    const collection = await this.getJobsCollection();
-    
-    const [totalJobs, activeJobs, companiesCount] = await Promise.all([
-      collection.countDocuments(),
-      collection.countDocuments({ isActive: true }),
-      collection.distinct('companyName', { isActive: true }).then(arr => arr.length)
+  // Get scraping statistics
+  async getScrapingStats() {
+    const logsCollection = await this.getLogsCollection();
+    const jobsCollection = await this.getJobsCollection();
+
+    const [totalJobs, lastScraping, companiesStats] = await Promise.all([
+      jobsCollection.countDocuments({ isActive: true }),
+      logsCollection.findOne({}, { sort: { scrapedAt: -1 } }),
+      jobsCollection.aggregate([
+        { $match: { isActive: true } },
+        { $group: { _id: '$companyName', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]).toArray()
     ]);
-    
+
     return {
       totalJobs,
-      activeJobs,
-      inactiveJobs: totalJobs - activeJobs,
-      companiesCount
+      lastScraping,
+      companiesStats
     };
+  }
+
+  // Get jobs count by company for monitoring
+  async getJobsCountByCompany(): Promise<{ [company: string]: number }> {
+    const collection = await this.getJobsCollection();
+    
+    const pipeline = [
+      { $match: { isActive: true } },
+      { $group: { _id: '$companyName', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ];
+    
+    const results = await collection.aggregate(pipeline).toArray();
+    
+    const companyCounts: { [company: string]: number } = {};
+    results.forEach((result: any) => {
+      companyCounts[result._id] = result.count;
+    });
+    
+    return companyCounts;
   }
 }

@@ -1,84 +1,114 @@
-// app/api/scrape/route.ts
-import { NextResponse } from 'next/server';
+// app/api/scraper/route.ts
+import { NextRequest, NextResponse } from 'next/server';
 import { ScraperService } from '@/lib/services/scraperService';
-import { JobService } from '@/lib/services/jobService';
 
-const scraperService = new ScraperService();
-const jobService = new JobService();
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    console.log('🚀 Starting job scraping process...');
+    console.log('🚀 Starting scraper API endpoint...');
     
-    const startTime = Date.now();
+    const scraperService = new ScraperService();
     
-    // Scrape all jobs
-    const scrapedJobs = await scraperService.scrapeAllJobs();
+    // Check if it's a specific company scrape or all companies
+    const body = await request.json().catch(() => ({}));
+    const { company } = body;
     
-    if (scrapedJobs.length === 0) {
-      // Log the failed scraping attempt
-      await jobService.logScraping({
-        companyName: 'All Companies',
-        status: 'failed',
-        jobsFound: 0,
-        errorMessage: 'No jobs were scraped',
-        duration: Date.now() - startTime
-      });
+    if (company) {
+      console.log(`🔍 Scraping specific company: ${company}`);
+      
+      // For specific company, use individual scraper
+      let jobs;
+      switch (company.toLowerCase()) {
+        case 'infomil':
+          jobs = await scraperService.scrapeCompany('Infomil');
+          break;
+        case 'estreem':
+          jobs = await scraperService.scrapeCompany('Estreem');
+          break;
+        case 'bpce':
+          jobs = await scraperService.scrapeCompany('BPCE');
+          break;
+        case 'air france':
+        case 'airfrance':
+          jobs = await scraperService.scrapeCompany('Air France');
+          break;
+        case 'berger levrault':
+        case 'bergerlevrault':
+          jobs = await scraperService.scrapeCompany('Berger Levrault');
+          break;
+        default:
+          return NextResponse.json({
+            success: false,
+            error: `Unknown company: ${company}`,
+            message: 'Supported companies: Infomil, Estreem, BPCE, Air France, Berger Levrault'
+          }, { status: 400 });
+      }
       
       return NextResponse.json({
-        success: false,
-        message: 'No jobs were scraped',
-        jobsAdded: 0,
-        duration: Date.now() - startTime
+        success: true,
+        message: `Successfully scraped ${company}`,
+        jobsCount: jobs.length,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log('🔍 Scraping all companies...');
+      const results = await scraperService.scrapeAllJobs();
+      
+      // Get updated stats
+      const stats = await scraperService.getScrapingStats();
+      
+      return NextResponse.json({
+        success: true,
+        message: 'Successfully scraped all companies',
+        results: {
+          newJobs: results.newJobs,
+          updatedJobs: results.updatedJobs,
+          deactivatedJobs: results.deactivatedJobs,
+          totalActiveJobs: stats.totalActiveJobs
+        },
+        stats: stats.jobsByCompany,
+        timestamp: new Date().toISOString()
       });
     }
     
-    // Save jobs to database
-    console.log(`💾 Saving ${scrapedJobs.length} jobs to database...`);
-    const result = await jobService.upsertJobs(scrapedJobs);
+  } catch (error) {
+    console.error('❌ Error in scraper API:', error);
     
-    // Log the successful scraping activity
-    await jobService.logScraping({
-      companyName: 'All Companies',
-      status: 'success',
-      jobsFound: scrapedJobs.length,
-      duration: Date.now() - startTime
-    });
-    
-    console.log(`✅ Scraping completed: ${result.upsertedCount} new jobs, ${result.modifiedCount} updated jobs`);
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to scrape jobs',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const scraperService = new ScraperService();
+    const stats = await scraperService.getScrapingStats();
     
     return NextResponse.json({
       success: true,
-      message: 'Jobs scraped successfully',
-      jobsAdded: result.upsertedCount,
-      jobsUpdated: result.modifiedCount,
-      totalJobs: scrapedJobs.length,
-      duration: Date.now() - startTime,
-      companies: [...new Set(scrapedJobs.map(job => job.companyName))]
+      stats: {
+        totalActiveJobs: stats.totalActiveJobs,
+        jobsByCompany: stats.jobsByCompany,
+        lastScrapedAt: stats.lastScrapedAt
+      },
+      timestamp: new Date().toISOString()
     });
-    
   } catch (error) {
-    console.error('❌ Scraping failed:', error);
+    console.error('❌ Error getting scraper stats:', error);
     
-    const duration = Date.now() - Date.now();
-    
-    // Log the failed scraping attempt
-    try {
-      await jobService.logScraping({
-        companyName: 'All Companies',
-        status: 'failed',
-        jobsFound: 0,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        duration: duration
-      });
-    } catch (logError) {
-      console.error('❌ Failed to log scraping error:', logError);
-    }
-    
-    return NextResponse.json({
-      success: false,
-      error: 'Scraping failed',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to get scraper stats',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }
