@@ -14,8 +14,8 @@ export default function HomePage() {
   const [allJobs, setAllJobs] = useState<JobOffer[]>([]);
   const [filteredJobs, setFilteredJobs] = useState<JobOffer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [scrapingLoading, setScrapingLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [cacheStatus, setCacheStatus] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState<FilterState>({
     companies: [],
@@ -23,77 +23,23 @@ export default function HomePage() {
     searchTerm: ''
   });
 
-  // Helper function to fetch jobs without current filters
-  const fetchJobsWithoutFilters = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/jobs');
-      if (!response.ok) {
-        throw new Error('Failed to fetch jobs');
-      }
-      
-      const data: ApiResponse = await response.json();
-      setJobs(data.jobs);
-      setFilteredJobs(data.jobs);
-      setAllJobs(data.jobs);
-      setLastUpdated(data.lastUpdated);
-    } catch (error) {
-      console.error('Error fetching jobs:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Trigger scraping
-  const triggerScraping = useCallback(async () => {
-    setScrapingLoading(true);
-    try {
-      console.log('🚀 Triggering scraping process...');
-      const response = await fetch('/api/scrape', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Scraping request failed');
-      }
-
-      const result = await response.json();
-      console.log('✅ Scraping result:', result);
-      
-      // After scraping, fetch the updated jobs and refresh all jobs list
-      await fetchJobsWithoutFilters();
-      
-      // Also fetch all jobs without filters to update filter options
-      const allJobsResponse = await fetch('/api/jobs');
-      if (allJobsResponse.ok) {
-        const allJobsData: ApiResponse = await allJobsResponse.json();
-        setAllJobs(allJobsData.jobs);
-      }
-      
-    } catch (error) {
-      console.error('❌ Scraping failed:', error);
-    } finally {
-      setScrapingLoading(false);
-    }
-  }, [fetchJobsWithoutFilters]);
-
-  const fetchJobs = useCallback(async () => {
+  // Fetch jobs with current filters
+  const fetchJobs = useCallback(async (forceRefresh: boolean = false) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       
-      // Only add filters if they have actual values
       if (filters.companies.length > 0) {
         params.append('companies', filters.companies.join(','));
       }
       if (filters.locations.length > 0) {
         params.append('locations', filters.locations.join(','));
       }
-      if (filters.searchTerm && filters.searchTerm.trim()) {
-        params.append('search', filters.searchTerm.trim());
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      if (forceRefresh) {
+        params.append('refresh', 'true');
       }
 
       const response = await fetch(`/api/jobs?${params.toString()}`);
@@ -105,176 +51,172 @@ export default function HomePage() {
       setJobs(data.jobs);
       setFilteredJobs(data.jobs);
       setLastUpdated(data.lastUpdated);
+      setCacheStatus(data.cacheStatus);
       
-      // If no filters are applied, this is our complete dataset for filter options
-      if (filters.companies.length === 0 && filters.locations.length === 0 && !filters.searchTerm.trim()) {
+      // Update allJobs for filter options if no filters applied
+      if (filters.companies.length === 0 && filters.locations.length === 0 && !searchTerm) {
         setAllJobs(data.jobs);
       }
+      
     } catch (error) {
       console.error('Error fetching jobs:', error);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, searchTerm]);
 
-  // Initial load: trigger scraping then fetch jobs
-  useEffect(() => {
-    const initializeData = async () => {
-      console.log('🌐 Website loaded, starting automatic scraping...');
-      await triggerScraping();
-    };
-    
-    initializeData();
-  }, [triggerScraping]);
+  // Fetch jobs without filters to get all companies/locations for filter options
+  const fetchAllJobsForFilters = useCallback(async () => {
+    try {
+      const response = await fetch('/api/jobs');
+      if (response.ok) {
+        const data: ApiResponse = await response.json();
+        setAllJobs(data.jobs);
+      }
+    } catch (error) {
+      console.error('Error fetching all jobs for filters:', error);
+    }
+  }, []);
 
-  // Handle filter changes
+  // Initial load
   useEffect(() => {
     fetchJobs();
-  }, [filters, fetchJobs]);
+    fetchAllJobsForFilters();
+  }, []);
 
-  // Handle search term changes
+  // Fetch when filters change
   useEffect(() => {
-    const debouncedSearchHandler = debounce((term: string, jobsList: JobOffer[]) => {
-      if (term) {
-        const filtered = jobsList.filter(job =>
-          job.companyName.toLowerCase().includes(term.toLowerCase()) ||
-          job.jobTitle.toLowerCase().includes(term.toLowerCase()) ||
-          job.location.toLowerCase().includes(term.toLowerCase())
-        );
-        setFilteredJobs(filtered);
-      } else {
-        setFilteredJobs(jobsList);
-      }
-    }, 300);
+    if (filters.companies.length > 0 || filters.locations.length > 0 || searchTerm) {
+      fetchJobs();
+    }
+  }, [fetchJobs]);
 
-    debouncedSearchHandler(searchTerm, jobs);
-    
-    // Cleanup function to cancel pending debounced calls
-    return () => {
-      // The debounce function should handle cleanup internally
-    };
-  }, [searchTerm, jobs]);
+  // Debounced search
+  const debouncedSearch = useCallback(
+    debounce((term: string) => {
+      fetchJobs();
+    }, 500),
+    [fetchJobs]
+  );
 
-  const handleCompanyFilterChange = useCallback((values: string[]) => {
-    setFilters(prev => ({ ...prev, companies: values }));
+  useEffect(() => {
+    if (searchTerm !== filters.searchTerm) {
+      setFilters(prev => ({ ...prev, searchTerm }));
+      debouncedSearch(searchTerm);
+    }
+  }, [searchTerm, debouncedSearch, filters.searchTerm]);
+
+  // Force refresh (clear cache and re-scrape)
+  const handleRefresh = useCallback(async () => {
+    await fetchJobs(true);
+    await fetchAllJobsForFilters();
+  }, [fetchJobs, fetchAllJobsForFilters]);
+
+  // Filter handlers
+  const handleCompanyFilter = useCallback((companies: string[]) => {
+    setFilters(prev => ({ ...prev, companies }));
   }, []);
 
-  const handleLocationFilterChange = useCallback((values: string[]) => {
-    setFilters(prev => ({ ...prev, locations: values }));
-  }, []);
-
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value);
-    setFilters(prev => ({ ...prev, searchTerm: value }));
+  const handleLocationFilter = useCallback((locations: string[]) => {
+    setFilters(prev => ({ ...prev, locations }));
   }, []);
 
   const handleExport = useCallback(() => {
-    exportToCSV(filteredJobs, 'offres-emploi.csv');
+    exportToCSV(filteredJobs, `jobs-${new Date().toISOString().split('T')[0]}.csv`);
   }, [filteredJobs]);
 
-  // Handle refresh button click
-  const handleRefresh = useCallback(async () => {
-    console.log('🔄 Manual refresh triggered...');
-    await triggerScraping();
-  }, [triggerScraping]);
-
-  const uniqueCompanies = getUniqueCompanies(allJobs.length > 0 ? allJobs : jobs);
-  const uniqueLocations = getUniqueLocations(allJobs.length > 0 ? allJobs : jobs);
+  // Get unique values for filters
+  const uniqueCompanies = getUniqueCompanies(allJobs);
+  const uniqueLocations = getUniqueLocations(allJobs);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Go Get Business</h1>
-              <p className="mt-1 text-gray-600">Plateforme d&apos;agrégation d&apos;offres d&apos;emploi</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Go Get Business - Offres d'emploi Tech
+          </h1>
+          <p className="text-gray-600">
+            Découvrez les dernières opportunités dans les entreprises tech françaises
+          </p>
+          
+          {/* Cache Status (for debugging) */}
+          {cacheStatus && (
+            <div className="mt-2 text-sm text-gray-500">
+              {cacheStatus.cached ? (
+                <span>
+                  📋 Données en cache ({cacheStatus.jobCount} jobs, 
+                  mise à jour il y a {cacheStatus.age}s, 
+                  expire dans {cacheStatus.remainingTime}s)
+                </span>
+              ) : (
+                <span>🔄 Données fraîches depuis le scraping</span>
+              )}
             </div>
-            <RefreshButton 
-              onRefresh={handleRefresh} 
-              loading={scrapingLoading || loading} 
-              lastUpdated={lastUpdated}
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="mb-6 space-y-4">
+          {/* Search and Actions */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            <div className="flex-1 max-w-md">
+              <input
+                type="text"
+                placeholder="Rechercher par entreprise, poste ou lieu..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="input-field"
+              />
+            </div>
+            
+            <div className="flex gap-2">
+              <RefreshButton onRefresh={handleRefresh} loading={loading} />
+              <button
+                onClick={handleExport}
+                disabled={filteredJobs.length === 0}
+                className="btn-outline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Exporter CSV
+              </button>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <ClientFilter
+              selectedItems={filters.companies}
+              allItems={uniqueCompanies}
+              onChange={handleCompanyFilter}
+              title="Entreprises"
+            />
+            <LocationFilter
+              selectedItems={filters.locations}
+              allItems={uniqueLocations}
+              onChange={handleLocationFilter}
+              title="Localisations"
             />
           </div>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Sidebar with filters */}
-          <aside className="lg:w-80 space-y-6">
-            <div className="space-y-4">
-              {/* Search */}
-              <div className="card p-4">
-                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                  Recherche
-                </label>
-                <input
-                  type="text"
-                  id="search"
-                  value={searchTerm}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  placeholder="Rechercher par entreprise, poste ou lieu..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-
-              {/* Company Filter - Using correct prop names */}
-              <ClientFilter
-                title="Entreprises"
-                allItems={uniqueCompanies}
-                selectedItems={filters.companies}
-                onChange={handleCompanyFilterChange}
-              />
-
-              {/* Location Filter - Using correct prop names */}
-              <LocationFilter
-                title="Localisations"
-                allItems={uniqueLocations}
-                selectedItems={filters.locations}
-                onChange={handleLocationFilterChange}
-              />
-
-              {/* Export Button */}
-              <div className="card p-4">
-                <button
-                  onClick={handleExport}
-                  disabled={filteredJobs.length === 0}
-                  className={`w-full px-4 py-2 rounded-md font-medium transition-colors duration-200 ${
-                    filteredJobs.length === 0
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-green-600 text-white hover:bg-green-700'
-                  }`}
-                >
-                  📥 Exporter ({filteredJobs.length})
-                </button>
-              </div>
-            </div>
-          </aside>
-
-          {/* Main content area */}
-          <div className="flex-1">
-            {/* Jobs table with built-in pagination */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              {scrapingLoading && (
-                <div className="p-4 bg-blue-50 border-b border-blue-200">
-                  <p className="text-sm text-blue-600 flex items-center">
-                    <div className="loading-spinner w-4 h-4 mr-2"></div>
-                    🔄 Actualisation des données en cours...
-                  </p>
-                </div>
-              )}
-              
-              <JobTable 
-                jobs={filteredJobs} 
-                loading={loading}
-              />
-            </div>
+          {/* Results Summary */}
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <span>
+              {loading ? 'Chargement...' : `${filteredJobs.length} offre${filteredJobs.length > 1 ? 's' : ''} trouvée${filteredJobs.length > 1 ? 's' : ''}`}
+            </span>
+            {lastUpdated && (
+              <span>
+                Dernière mise à jour : {new Date(lastUpdated).toLocaleString('fr-FR')}
+              </span>
+            )}
           </div>
         </div>
-      </main>
+
+        {/* Job Table */}
+        <div className="card">
+          <JobTable jobs={filteredJobs} loading={loading} />
+        </div>
+      </div>
     </div>
   );
 }

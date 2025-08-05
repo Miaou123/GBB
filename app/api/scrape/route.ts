@@ -1,113 +1,130 @@
-// app/api/scraper/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { ScraperService } from '@/lib/services/scraperService';
+// app/api/jobs/route.ts
+import { NextResponse } from 'next/server';
+import { ScraperService, ScrapedJob } from '@/lib/services/scraperService';
+import { JobOffer, ApiResponse } from '@/lib/types';
 
-export async function POST(request: NextRequest) {
+const scraperService = new ScraperService();
+
+export async function GET(request: Request) {
   try {
-    console.log('🚀 Starting scraper API endpoint...');
+    const { searchParams } = new URL(request.url);
+    const companies = searchParams.get('companies')?.split(',').filter(Boolean) || [];
+    const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
+    const search = searchParams.get('search') || '';
+    const forceRefresh = searchParams.get('refresh') === 'true';
+
+    console.log('🔍 API: Fetching jobs with filters:', { companies, locations, search, forceRefresh });
+
+    // Get all jobs from scrapers (use cache unless force refresh)
+    const scrapedJobs: ScrapedJob[] = await scraperService.getAllJobs(!forceRefresh);
+
+    // Convert scraped jobs to JobOffer format
+    let jobOffers: JobOffer[] = scrapedJobs.map(job => ({
+      id: job.id,
+      companyName: job.companyName,
+      jobTitle: job.jobTitle,
+      location: job.location,
+      publishDate: job.publishDate,
+      url: job.url
+    }));
+
+    // Apply filters
+    if (companies.length > 0) {
+      jobOffers = jobOffers.filter(job => companies.includes(job.companyName));
+    }
+
+    if (locations.length > 0) {
+      jobOffers = jobOffers.filter(job => locations.includes(job.location));
+    }
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      jobOffers = jobOffers.filter(job =>
+        job.companyName.toLowerCase().includes(searchLower) ||
+        job.jobTitle.toLowerCase().includes(searchLower) ||
+        job.location.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Get cache status for debugging
+    const cacheStatus = scraperService.getCacheStatus();
     
-    const scraperService = new ScraperService();
+    const response: ApiResponse = {
+      jobs: jobOffers,
+      lastUpdated: new Date().toISOString(),
+      totalCount: jobOffers.length,
+      source: 'scraping',
+      cacheStatus // Add cache info for debugging
+    };
+
+    console.log(`✅ API: Returning ${jobOffers.length} jobs (cache: ${cacheStatus.cached})`);
     
-    // Check if it's a specific company scrape or all companies
-    const body = await request.json().catch(() => ({}));
-    const { company } = body;
+    return NextResponse.json(response);
+
+  } catch (error) {
+    console.error('❌ API Error:', error);
     
-    if (company) {
-      console.log(`🔍 Scraping specific company: ${company}`);
-      
-      // For specific company, use individual scraper
-      let jobs;
-      switch (company.toLowerCase()) {
-        case 'infomil':
-          jobs = await scraperService.scrapeCompany('Infomil');
-          break;
-        case 'estreem':
-          jobs = await scraperService.scrapeCompany('Estreem');
-          break;
-        case 'bpce':
-          jobs = await scraperService.scrapeCompany('BPCE');
-          break;
-        case 'air france':
-        case 'airfrance':
-          jobs = await scraperService.scrapeCompany('Air France');
-          break;
-        case 'berger levrault':
-        case 'bergerlevrault':
-          jobs = await scraperService.scrapeCompany('Berger Levrault');
-          break;
-        default:
-          return NextResponse.json({
-            success: false,
-            error: `Unknown company: ${company}`,
-            message: 'Supported companies: Infomil, Estreem, BPCE, Air France, Berger Levrault'
-          }, { status: 400 });
-      }
-      
-      return NextResponse.json({
-        success: true,
-        message: `Successfully scraped ${company}`,
-        jobsCount: jobs.length,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      console.log('🔍 Scraping all companies...');
-      const results = await scraperService.scrapeAllJobs();
-      
-      // Get updated stats
-      const stats = await scraperService.getScrapingStats();
-      
-      return NextResponse.json({
-        success: true,
-        message: 'Successfully scraped all companies',
-        results: {
-          newJobs: results.newJobs,
-          updatedJobs: results.updatedJobs,
-          deactivatedJobs: results.deactivatedJobs,
-          totalActiveJobs: stats.totalActiveJobs
-        },
-        stats: stats.jobsByCompany,
+    // Fallback to mock data if everything fails
+    const { mockJobs } = await import('@/lib/mockData');
+    
+    let filteredJobs = [...mockJobs];
+    const { searchParams } = new URL(request.url);
+    const companies = searchParams.get('companies')?.split(',').filter(Boolean) || [];
+    const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
+    const search = searchParams.get('search') || '';
+
+    // Apply same filters to mock data
+    if (companies.length > 0) {
+      filteredJobs = filteredJobs.filter(job => companies.includes(job.companyName));
+    }
+
+    if (locations.length > 0) {
+      filteredJobs = filteredJobs.filter(job => locations.includes(job.location));
+    }
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredJobs = filteredJobs.filter(job =>
+        job.companyName.toLowerCase().includes(searchLower) ||
+        job.jobTitle.toLowerCase().includes(searchLower) ||
+        job.location.toLowerCase().includes(searchLower)
+      );
+    }
+
+    const response: ApiResponse = {
+      jobs: filteredJobs,
+      lastUpdated: new Date().toISOString(),
+      totalCount: filteredJobs.length,
+      source: 'mock-fallback'
+    };
+
+    return NextResponse.json(response);
+  }
+}
+
+// Optional: Add a cache management endpoint
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+    
+    if (action === 'clear-cache') {
+      scraperService.clearCache();
+      return NextResponse.json({ 
+        message: 'Cache cleared successfully',
         timestamp: new Date().toISOString()
       });
     }
     
-  } catch (error) {
-    console.error('❌ Error in scraper API:', error);
-    
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to scrape jobs',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      },
-      { status: 500 }
+      { error: 'Invalid action. Use ?action=clear-cache' },
+      { status: 400 }
     );
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const scraperService = new ScraperService();
-    const stats = await scraperService.getScrapingStats();
     
-    return NextResponse.json({
-      success: true,
-      stats: {
-        totalActiveJobs: stats.totalActiveJobs,
-        jobsByCompany: stats.jobsByCompany,
-        lastScrapedAt: stats.lastScrapedAt
-      },
-      timestamp: new Date().toISOString()
-    });
   } catch (error) {
-    console.error('❌ Error getting scraper stats:', error);
-    
+    console.error('❌ Cache management error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to get scraper stats',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to manage cache' },
       { status: 500 }
     );
   }

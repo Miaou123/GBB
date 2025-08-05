@@ -18,7 +18,13 @@ export interface ApiResponse {
   jobs: JobOffer[];
   lastUpdated: string;
   totalCount: number;
-  source: 'database' | 'mock'; // Add this line
+  source: 'scraping' | 'mock-fallback';
+  cacheStatus?: {
+    cached: boolean;
+    age?: number;
+    jobCount?: number;
+    remainingTime?: number;
+  };
 }
 
 export interface FilterProps {

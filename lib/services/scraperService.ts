@@ -1,6 +1,4 @@
 // lib/services/scraperService.ts
-import { JobDocument } from '../models/job';
-import { JobService } from './jobService';
 import { EstreemScraper } from '../scrapers/estreemScraper';
 import { InfomilScraper } from '../scrapers/infomilScraper';
 import { BPCEScraper } from '../scrapers/bpceScraper';
@@ -19,147 +17,95 @@ export interface ScrapedJob {
   contractType?: string;
 }
 
+// Simple in-memory cache (optional - 30 minutes)
+interface CacheEntry {
+  data: ScrapedJob[];
+  timestamp: number;
+}
+
 export class ScraperService {
   private estreemScraper = new EstreemScraper();
   private infomilScraper = new InfomilScraper();
   private bpceScraper = new BPCEScraper();
   private airfranceScraper = new AirFranceScraper();
   private bergerLevraultScraper = new BergerLevraultScraper();
-  private jobService = new JobService();
   
-  // Convert scraped jobs to database format
-  convertToJobDocument(scrapedJob: ScrapedJob): JobDocument {
-    return {
-      id: scrapedJob.id,
-      companyName: scrapedJob.companyName,
-      jobTitle: scrapedJob.jobTitle,
-      location: scrapedJob.location,
-      publishDate: scrapedJob.publishDate,
-      url: scrapedJob.url,
-      source: scrapedJob.source,
-      scrapedAt: new Date(),
-      isActive: true,
-      description: scrapedJob.description,
-      contractType: scrapedJob.contractType
-    };
-  }
+  // Simple in-memory cache
+  private cache: CacheEntry | null = null;
+  private readonly CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
   
-  // Scrape all configured companies with proper cleanup
-  async scrapeAllJobs(): Promise<{ newJobs: number; updatedJobs: number; deactivatedJobs: number }> {
-    console.log('🚀 Starting job scraping process...');
-    console.log('🚀 Starting to scrape all jobs...');
+  // Get all jobs from all companies (with optional caching)
+  async getAllJobs(useCache: boolean = true): Promise<ScrapedJob[]> {
+    // Check cache first
+    if (useCache && this.cache && this.isCacheValid()) {
+      console.log('📋 Returning cached jobs');
+      return this.cache.data;
+    }
     
-    const results = {
-      newJobs: 0,
-      updatedJobs: 0,
-      deactivatedJobs: 0
-    };
+    console.log('🚀 Starting fresh scraping process...');
     
+    const allJobs: ScrapedJob[] = [];
+    const scrapePromises: Promise<ScrapedJob[]>[] = [];
+    
+    // Scrape all companies in parallel for speed
     try {
-      // Scrape BPCE (Priority - has Open Data API)
-      await this.scrapeAndUpdateCompany('BPCE', this.bpceScraper, results);
+      scrapePromises.push(this.scrapeCompany('BPCE', this.bpceScraper));
+      scrapePromises.push(this.scrapeCompany('Air France', this.airfranceScraper));
+      scrapePromises.push(this.scrapeCompany('Estreem', this.estreemScraper));
+      scrapePromises.push(this.scrapeCompany('Infomil', this.infomilScraper));
+      scrapePromises.push(this.scrapeCompany('Berger Levrault', this.bergerLevraultScraper));
       
-      // Scrape Estreem
-      await this.scrapeAndUpdateCompany('Estreem', this.estreemScraper, results);
+      // Wait for all scrapers to complete
+      const results = await Promise.allSettled(scrapePromises);
       
-      // Scrape Infomil
-      await this.scrapeAndUpdateCompany('Infomil', this.infomilScraper, results);
+      // Collect successful results
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          allJobs.push(...result.value);
+        } else {
+          console.error(`❌ Scraper ${index} failed:`, result.reason);
+        }
+      });
       
-      // Scrape Air France
-      await this.scrapeAndUpdateCompany('Air France', this.airfranceScraper, results);
+      // Remove duplicates based on id
+      const uniqueJobs = this.removeDuplicates(allJobs);
       
-      // Scrape Berger Levrault
-      await this.scrapeAndUpdateCompany('Berger Levrault', this.bergerLevraultScraper, results);
+      // Update cache
+      if (useCache) {
+        this.cache = {
+          data: uniqueJobs,
+          timestamp: Date.now()
+        };
+      }
       
-      console.log(`✅ Scraping completed: ${results.newJobs} new jobs, ${results.updatedJobs} updated jobs, ${results.deactivatedJobs} deactivated jobs`);
-      return results;
+      console.log(`✅ Scraping completed: ${uniqueJobs.length} unique jobs found`);
+      return uniqueJobs;
       
     } catch (error) {
-      console.error('❌ Error in scrapeAllJobs:', error);
-      return results;
+      console.error('❌ Error in getAllJobs:', error);
+      
+      // Return cached data if available, otherwise empty array
+      if (this.cache && this.cache.data.length > 0) {
+        console.log('📋 Returning stale cached data due to error');
+        return this.cache.data;
+      }
+      
+      return [];
     }
   }
   
-  // Scrape a specific company and update database with cleanup
-  private async scrapeAndUpdateCompany(
+  // Scrape a specific company
+  private async scrapeCompany(
     companyName: string, 
-    scraper: EstreemScraper | InfomilScraper | BPCEScraper | AirFranceScraper | BergerLevraultScraper, 
-    results: { newJobs: number; updatedJobs: number; deactivatedJobs: number }
-  ): Promise<void> {
+    scraper: EstreemScraper | InfomilScraper | BPCEScraper | AirFranceScraper | BergerLevraultScraper
+  ): Promise<ScrapedJob[]> {
     try {
       console.log(`📍 Scraping ${companyName}...`);
       
-      // Scrape current jobs
-      const scrapedJobs: ScrapedJob[] = await scraper.scrapeJobs();
-      const jobDocuments: JobDocument[] = scrapedJobs.map((job: ScrapedJob) => this.convertToJobDocument(job));
+      const jobs: ScrapedJob[] = await scraper.scrapeJobs();
       
-      if (jobDocuments.length > 0) {
-        // Step 1: Upsert all scraped jobs
-        console.log(`💾 Saving ${jobDocuments.length} jobs to database...`);
-        const upsertResult = await this.jobService.upsertJobs(jobDocuments);
-        
-        // Step 2: Mark old jobs as inactive (cleanup)
-        const activeJobIds = jobDocuments.map(job => job.id);
-        const deactivateResult = await this.jobService.markJobsInactive(companyName, activeJobIds);
-        
-        // Update counters
-        results.newJobs += upsertResult.upsertedCount || 0;
-        results.updatedJobs += upsertResult.modifiedCount || 0;
-        results.deactivatedJobs += deactivateResult.modifiedCount || 0;
-        
-        console.log(`✅ ${companyName}: ${jobDocuments.length} jobs processed`);
-        console.log(`🔄 Processing ${jobDocuments.length} jobs, ${jobDocuments.length} unique after deduplication`);
-        console.log(`✅ Upsert complete: ${upsertResult.upsertedCount || 0} new, ${upsertResult.modifiedCount || 0} updated`);
-      } else {
-        console.log(`⚠️ ${companyName}: No jobs found`);
-      }
-      
-    } catch (error) {
-      console.error(`❌ Error scraping ${companyName}:`, error);
-    }
-  }
-  
-  // Scrape specific company
-  async scrapeCompany(companyName: string): Promise<JobDocument[]> {
-    console.log(`🔍 Scraping ${companyName}...`);
-    
-    try {
-      let jobs: ScrapedJob[] = [];
-      
-      switch (companyName.toLowerCase()) {
-        case 'bpce':
-          jobs = await this.bpceScraper.scrapeJobs();
-          break;
-        case 'estreem':
-          jobs = await this.estreemScraper.scrapeJobs();
-          break;
-        case 'infomil':
-          jobs = await this.infomilScraper.scrapeJobs();
-          break;
-        case 'air france':
-        case 'airfrance':
-          jobs = await this.airfranceScraper.scrapeJobs();
-          break;
-        case 'berger levrault':
-        case 'bergerlevrault':
-          jobs = await this.bergerLevraultScraper.scrapeJobs();
-          break;
-        default:
-          console.log(`⚠️ Unknown company: ${companyName}`);
-          return [];
-      }
-      
-      const jobDocuments: JobDocument[] = jobs.map((job: ScrapedJob) => this.convertToJobDocument(job));
-      
-      if (jobDocuments.length > 0) {
-        // Update database with cleanup
-        await this.jobService.upsertJobs(jobDocuments);
-        const activeJobIds = jobDocuments.map(job => job.id);
-        await this.jobService.markJobsInactive(companyName, activeJobIds);
-      }
-      
-      console.log(`✅ ${companyName}: ${jobDocuments.length} jobs processed`);
-      return jobDocuments;
+      console.log(`✅ ${companyName}: ${jobs.length} jobs found`);
+      return jobs;
       
     } catch (error) {
       console.error(`❌ Error scraping ${companyName}:`, error);
@@ -167,36 +113,49 @@ export class ScraperService {
     }
   }
   
-  // Get scraping statistics
-  async getScrapingStats(): Promise<{
-    totalActiveJobs: number;
-    jobsByCompany: { [company: string]: number };
-    lastScrapedAt: Date | null;
-  }> {
-    try {
-      const allJobs = await this.jobService.getJobs();
-      const jobsByCompany = await this.jobService.getJobsCountByCompany();
-      
-      let lastScrapedAt: Date | null = null;
-      allJobs.forEach((job: JobDocument) => {
-        if (job.scrapedAt && (!lastScrapedAt || job.scrapedAt > lastScrapedAt)) {
-          lastScrapedAt = job.scrapedAt;
-        }
-      });
-      
-      return {
-        totalActiveJobs: allJobs.length,
-        jobsByCompany,
-        lastScrapedAt
-      };
-      
-    } catch (error) {
-      console.error('❌ Error getting scraping stats:', error);
-      return {
-        totalActiveJobs: 0,
-        jobsByCompany: {},
-        lastScrapedAt: null
-      };
+  // Remove duplicate jobs based on ID
+  private removeDuplicates(jobs: ScrapedJob[]): ScrapedJob[] {
+    const seen = new Set<string>();
+    return jobs.filter(job => {
+      if (seen.has(job.id)) {
+        return false;
+      }
+      seen.add(job.id);
+      return true;
+    });
+  }
+  
+  // Check if cache is still valid
+  private isCacheValid(): boolean {
+    if (!this.cache) return false;
+    return (Date.now() - this.cache.timestamp) < this.CACHE_DURATION;
+  }
+  
+  // Clear cache manually (useful for testing)
+  clearCache(): void {
+    this.cache = null;
+    console.log('🗑️ Cache cleared');
+  }
+  
+  // Get cache status
+  getCacheStatus(): { 
+    cached: boolean; 
+    age?: number; 
+    jobCount?: number; 
+    remainingTime?: number 
+  } {
+    if (!this.cache) {
+      return { cached: false };
     }
+    
+    const age = Date.now() - this.cache.timestamp;
+    const remainingTime = this.CACHE_DURATION - age;
+    
+    return {
+      cached: true,
+      age: Math.floor(age / 1000), // seconds
+      jobCount: this.cache.data.length,
+      remainingTime: Math.max(0, Math.floor(remainingTime / 1000)) // seconds
+    };
   }
 }
