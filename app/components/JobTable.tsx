@@ -1,7 +1,11 @@
+// app/components/JobTable.tsx
 'use client';
 
 import { useState } from 'react';
 import { JobOffer, SortField, SortDirection } from '@/lib/types';
+import { usePagination } from '@/lib/hooks/usePagination';
+import Pagination from './Pagination';
+import PageSizeSelector from './PageSizeSelector';
 
 interface JobTableProps {
   jobs: JobOffer[];
@@ -12,15 +16,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
   const [sortField, setSortField] = useState<SortField>('companyName');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  const handleSort = (field: SortField) => {
-    if (field === sortField) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
+  // Sort jobs first, then paginate
   const sortedJobs = [...jobs].sort((a, b) => {
     let aValue = '';
     let bValue = '';
@@ -47,6 +43,30 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
     const result = aValue.localeCompare(bValue);
     return sortDirection === 'asc' ? result : -result;
   });
+
+  // Use pagination hook
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    paginatedData,
+    setCurrentPage,
+    setPageSize
+  } = usePagination({
+    data: sortedJobs,
+    initialPageSize: 100
+  });
+
+  const handleSort = (field: SortField) => {
+    if (field === sortField) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    // Reset to first page when sorting changes
+    setCurrentPage(1);
+  };
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
@@ -101,6 +121,19 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
 
   return (
     <div className="card overflow-hidden">
+      {/* Page size selector */}
+      <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+        <div className="text-sm text-gray-600">
+          {jobs.length} offre{jobs.length > 1 ? 's' : ''} trouvée{jobs.length > 1 ? 's' : ''}
+        </div>
+        <PageSizeSelector
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          totalItems={jobs.length}
+        />
+      </div>
+
+      {/* Table */}
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="table-header">
@@ -147,7 +180,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {sortedJobs.map((job) => (
+            {paginatedData.map((job: JobOffer) => (
               <tr key={job.id} className="hover:bg-gray-50 transition-colors duration-200">
                 <td className="table-cell font-medium text-gray-900">
                   {job.companyName}
@@ -179,11 +212,15 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
           </tbody>
         </table>
       </div>
-      <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
-        <div className="text-sm text-gray-600">
-          {jobs.length} offre{jobs.length > 1 ? 's' : ''} trouvée{jobs.length > 1 ? 's' : ''}
-        </div>
-      </div>
+
+      {/* Pagination */}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalItems={jobs.length}
+        itemsPerPage={pageSize}
+      />
     </div>
   );
 }

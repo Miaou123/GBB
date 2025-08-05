@@ -1,7 +1,9 @@
-// lib/scrapers/airfranceScraper.ts
+// lib/scrapers/airfranceScraper.ts - Update the fallback jobs section
+import { load } from 'cheerio';
+import type { CheerioAPI, Cheerio } from 'cheerio';
 import axios from 'axios';
-import * as cheerio from 'cheerio';
 import { ScrapedJob } from '../services/scraperService';
+import { generateJobId } from '../utils/jobUtils';
 
 export class AirFranceScraper {
   private readonly baseUrl = 'https://recrutement.airfrance.com';
@@ -10,8 +12,43 @@ export class AirFranceScraper {
     try {
       console.log('🔍 Scraping Air France jobs from HTML page...');
       
-      // Use the direct URL that returns the full HTML with job listings
-      const response = await axios.get(`${this.baseUrl}/offre-de-emploi/liste-offres.aspx`, {
+      const jobs: ScrapedJob[] = [];
+      
+      // Scrape multiple pages if available
+      const pagesToScrape = [1, 2]; // Based on the pagination in the HTML
+      
+      for (const page of pagesToScrape) {
+        console.log(`📄 Scraping Air France page ${page}...`);
+        const pageJobs = await this.scrapePage(page);
+        jobs.push(...pageJobs);
+        
+        // Add a small delay between page requests
+        if (page < pagesToScrape.length) {
+          await this.delay(1000);
+        }
+      }
+      
+      // Remove duplicates
+      const uniqueJobs = this.removeDuplicates(jobs);
+      
+      console.log(`✅ Air France: Successfully extracted ${uniqueJobs.length} jobs`);
+      return uniqueJobs;
+      
+    } catch (error) {
+      console.error('❌ Error scraping Air France:', error);
+      console.log('🔄 Using enhanced fallback jobs for Air France...');
+      return this.getEnhancedFallbackJobs();
+    }
+  }
+  
+  private async scrapePage(page: number): Promise<ScrapedJob[]> {
+    try {
+      let url = `${this.baseUrl}/offre-de-emploi/liste-offres.aspx`;
+      if (page > 1) {
+        url += `?page=${page}&LCID=1036`;
+      }
+      
+      const response = await axios.get(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -24,230 +61,196 @@ export class AirFranceScraper {
         timeout: 20000
       });
       
-      console.log(`📄 Air France HTML response received (${response.data.length} characters)`);
-      
-      const $ = cheerio.load(response.data);
+      const $ = load(response.data);
       const jobs: ScrapedJob[] = [];
       
-      // Try multiple selectors to find job listings in the HTML
-      const jobSelectors = [
-        // Table-based listings (most common for job sites)
-        'table tr:not(:first-child)', // All table rows except header
-        'tbody tr', // Table body rows
-        'tr[id*="job"], tr[class*="job"], tr[id*="offre"], tr[class*="offre"]', // Specific job rows
-        
-        // List-based listings
-        '.job-item, .offer-item, .offre-item, .list-item',
-        '[data-job], [data-offer], [data-offre]',
-        
-        // Generic containers that might contain job info
-        '.result-item, .search-result, .item',
-        'div[class*="job"], div[class*="offer"], div[class*="offre"]',
-        
-        // Links to job pages
-        'a[href*="job"], a[href*="offre"], a[href*="emploi"]'
-      ];
+      // Target the specific job listing structure from the HTML
+      const jobElements = $('.ts-offer-list-item.offerlist-item');
       
-      let bestSelector = null;
-      let maxJobs = 0;
+      console.log(`📋 Found ${jobElements.length} job elements on page ${page}`);
       
-      // Try each selector and see which one gives us the most results
-      for (const selector of jobSelectors) {
-        const elements = $(selector);
-        console.log(`🔍 Selector "${selector}" found ${elements.length} elements`);
+      if (jobElements.length === 0) {
+        console.log('⚠️ No job elements found with primary selector, trying alternative selectors...');
         
-        if (elements.length > maxJobs) {
-          maxJobs = elements.length;
-          bestSelector = selector;
-        }
-      }
-      
-      if (bestSelector && maxJobs > 0) {
-        console.log(`✅ Using best selector: "${bestSelector}" with ${maxJobs} elements`);
+        const alternativeSelectors = [
+          'li.ts-offer-list-item',
+          '.ts-related-offers li',
+          'ul.ts-related-offers__row li',
+          'li[onclick*="location.href"]'
+        ];
         
-        $(bestSelector).each((index, element) => {
-          const $el = $(element);
-          const jobData = this.extractJobFromElement($el, index);
-          
-          if (jobData) {
-            jobs.push(jobData);
+        for (const selector of alternativeSelectors) {
+          const altElements = $(selector);
+          if (altElements.length > 0) {
+            console.log(`✅ Found ${altElements.length} elements with selector: ${selector}`);
+            return this.extractJobsFromElements($, altElements, page);
           }
-        });
-      }
-      
-      // If we didn't find structured job listings, try text extraction
-      if (jobs.length === 0) {
-        console.log('🔍 No structured jobs found, trying text extraction...');
-        const pageText = $('body').text();
-        const textJobs = this.extractJobsFromText(pageText);
-        jobs.push(...textJobs);
-      }
-      
-      // Remove duplicates and clean up
-      const uniqueJobs = this.removeDuplicates(jobs);
-      
-      if (uniqueJobs.length > 0) {
-        console.log(`✅ Air France: Successfully extracted ${uniqueJobs.length} jobs`);
-        return uniqueJobs;
+        }
       } else {
-        console.log('⚠️ No jobs extracted, using enhanced fallback...');
-        return this.getEnhancedFallbackJobs();
+        return this.extractJobsFromElements($, jobElements, page);
       }
+      
+      return jobs;
       
     } catch (error) {
-      console.error('❌ Error scraping Air France:', error);
-      console.log('🔄 Using enhanced fallback jobs for Air France...');
-      return this.getEnhancedFallbackJobs();
+      console.error(`❌ Error scraping Air France page ${page}:`, error);
+      return [];
     }
   }
   
-  private extractJobFromElement($el: any, index: number): ScrapedJob | null {
-    // Extract job title using multiple strategies
-    let jobTitle = '';
-    
-    // Strategy 1: Look for links (most job sites have job titles as links)
-    const linkEl = $el.find('a').first();
-    if (linkEl.length) {
-      jobTitle = linkEl.text().trim();
-    }
-    
-    // Strategy 2: Look for specific title elements
-    if (!jobTitle) {
-      const titleSelectors = ['td:first-child', '.title', '[class*="title"]', 'h1, h2, h3, h4, h5', 'strong', 'b'];
-      for (const titleSel of titleSelectors) {
-        const titleEl = $el.find(titleSel).first();
-        if (titleEl.length && titleEl.text().trim().length > 3) {
-          jobTitle = titleEl.text().trim();
-          break;
-        }
-      }
-    }
-    
-    // Strategy 3: Use the element's text content (for simple structures)
-    if (!jobTitle) {
-      const fullText = $el.text().trim();
-      // Look for job-like patterns in the text
-      const jobPattern = /^([^\.]+(?:H\/F|F\/H|CDI|CDD|Stage|Alternance|Technicien|Ingénieur|Responsable|Agent|Chargé|Manager|Directeur)[^\.]*)/i;
-      const match = fullText.match(jobPattern);
-      if (match) {
-        jobTitle = match[1].trim();
-      }
-    }
-    
-    // Only proceed if we have a reasonable job title
-    if (!jobTitle || jobTitle.length < 5 || jobTitle.length > 150) {
-      return null;
-    }
-    
-    // Filter out non-job content
-    const lowerTitle = jobTitle.toLowerCase();
-    if (lowerTitle.includes('cookie') || 
-        lowerTitle.includes('navigation') || 
-        lowerTitle.includes('politique') ||
-        lowerTitle.includes('connexion') ||
-        lowerTitle.includes('accueil')) {
-      return null;
-    }
-    
-    // Extract additional information
-    const fullText = $el.text();
-    
-    // Extract location
-    const locationMatch = fullText.match(/(Ile-de-France|Paris|Lyon|Toulouse|Marseille|Bordeaux|Nantes|Nice|Lille|Strasbourg|Montpellier|Rennes|Grenoble|Occitanie|France)/i);
-    const location = locationMatch ? locationMatch[1] : 'Ile-de-France';
-    
-    // Extract contract type
-    const contractMatch = fullText.match(/(CDI|CDD|Stage|Alternance|Apprentissage)/i);
-    const contractType = contractMatch ? contractMatch[1] : 'CDI';
-    
-    // Extract URL
-    const href = linkEl.attr('href') || '';
-    const jobUrl = href ? (href.startsWith('http') ? href : `${this.baseUrl}${href}`) : `${this.baseUrl}/`;
-    
-    return {
-      id: `airfrance-html-${Date.now()}-${index}`,
-      companyName: 'Air France',
-      jobTitle: this.cleanJobTitle(jobTitle),
-      location: location,
-      url: jobUrl,
-      source: 'airfrance',
-      contractType: contractType,
-      publishDate: this.getRecentDate()
-    };
-  }
-  
-  private extractJobsFromText(text: string): ScrapedJob[] {
+  private extractJobsFromElements($: CheerioAPI, elements: Cheerio<any>, page: number): ScrapedJob[] {
     const jobs: ScrapedJob[] = [];
     
-    console.log(`📝 Analyzing ${text.length} characters of text for job patterns...`);
-    
-    // Comprehensive job extraction patterns
-    const jobPatterns = [
-      // Jobs with H/F or F/H
-      /([A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞ][^\.]*(?:H\/F|F\/H)[^\.]*)/g,
-      // Jobs with common job titles
-      /([^\.]*(?:Technicien|Ingénieur|Responsable|Agent|Chargé|Contrôleur|Mécanicien|Développeur|Analyste|Chef|Directeur|Manager|Consultant)[^\.]*)/gi,
-      // Jobs with contract types
-      /([^\.]*(?:CDI|CDD|Stage|Alternance)[^\.]*)/gi,
-      // Aviation-specific jobs (for Air France)
-      /([^\.]*(?:Avion|Aviation|Maintenance|Escale|Vol|Pilote|Hôtesse|Steward)[^\.]*)/gi
-    ];
-    
-    jobPatterns.forEach((pattern, patternIndex) => {
-      let match;
-      let patternJobs = 0;
-      
-      while ((match = pattern.exec(text)) !== null && jobs.length < 50) {
-        const jobTitle = match[1].trim()
-          .replace(/\s+/g, ' ')
-          .replace(/^[-•·\s]+/, '');
+    elements.each((index: number, element: any) => {
+      try {
+        const $el = $(element);
         
-        // Quality filters
-        if (jobTitle.length > 10 && 
-            jobTitle.length < 120 && 
-            !this.isUnwantedContent(jobTitle)) {
-          
-          const locationMatch = jobTitle.match(/(Ile-de-France|Paris|Lyon|Toulouse|Marseille|Bordeaux|Nantes|Nice|Lille|Strasbourg|Montpellier|Rennes|Grenoble|Occitanie)/i);
-          
-          jobs.push({
-            id: `airfrance-text-${Date.now()}-${jobs.length}`,
-            companyName: 'Air France',
-            jobTitle: this.cleanJobTitle(jobTitle),
-            location: locationMatch ? locationMatch[1] : 'Ile-de-France',
-            url: `${this.baseUrl}/`,
-            source: 'airfrance',
-            contractType: 'CDI',
-            publishDate: this.getRecentDate()
-          });
-          patternJobs++;
+        // Extract job title from the h3 title link
+        const titleElement = $el.find('h3.ts-offer-list-item__title a.ts-offer-list-item__title-link');
+        const jobTitle = titleElement.text().trim();
+        
+        if (!jobTitle) {
+          console.log(`⚠️ No job title found for element ${index}`);
+          return;
         }
+        
+        // Extract job URL
+        const jobUrl = titleElement.attr('href');
+        const fullJobUrl = jobUrl ? (jobUrl.startsWith('http') ? jobUrl : `${this.baseUrl}${jobUrl}`) : `${this.baseUrl}/`;
+        
+        // Extract job reference from title attribute
+        const titleAttr = titleElement.attr('title') || '';
+        const refMatch = titleAttr.match(/Réf\.\s*:\s*([^)]+)/);
+        const reference = refMatch ? refMatch[1].trim() : '';
+        
+        // Extract location and contract type from description list
+        const descriptionItems = $el.find('ul.ts-offer-list-item__description li');
+        let contractType = 'CDI';
+        let location = 'Ile-de-France';
+        
+        descriptionItems.each((i: number, item: any) => {
+          const text = $(item).text().trim();
+          
+          // Check if it's a contract type
+          if (text.match(/^(CDI|CDD|Stage|Alternance|Convention de stage|Alternance et apprentissage)$/i)) {
+            contractType = text;
+          }
+          // Check if it's a location
+          else if (text.match(/(Ile-de-France|Paris|Lyon|Toulouse|Marseille|Bordeaux|Nantes|Nice|Lille|Strasbourg|Montpellier|Rennes|Grenoble|Occitanie|Provence-Alpes-Côte d'Azur|Pays de la Loire|Auvergne-Rhône-Alpes)/i)) {
+            location = text;
+          }
+        });
+        
+        // Extract job domain/category from title attribute
+        const domainMatch = titleAttr.match(/- (.+)$/);
+        const domain = domainMatch ? domainMatch[1] : '';
+        
+        // Generate publish date (since it's not readily available in the HTML)
+        const publishDate = this.getRecentDate();
+        
+        // Create the job object with date-aware ID
+        const job: ScrapedJob = {
+          id: reference ? 
+            generateJobId('Air France', jobTitle, location, publishDate, fullJobUrl) : 
+            generateJobId('Air France', jobTitle, location, publishDate, fullJobUrl),
+          companyName: 'Air France',
+          jobTitle: this.cleanJobTitle(jobTitle),
+          location: location,
+          url: fullJobUrl,
+          source: 'airfrance',
+          contractType: this.normalizeContractType(contractType),
+          publishDate: publishDate,
+          description: domain ? `Domaine: ${domain}` : undefined
+        };
+        
+        jobs.push(job);
+        
+        console.log(`✅ Extracted job: ${job.jobTitle} - ${job.location} (${job.contractType}) - ${job.publishDate}`);
+        
+      } catch (error) {
+        console.error(`❌ Error extracting job from element ${index}:`, error);
       }
-      
-      console.log(`📋 Pattern ${patternIndex + 1} extracted ${patternJobs} jobs`);
     });
     
     return jobs;
   }
   
-  private isUnwantedContent(text: string): boolean {
-    const unwantedTerms = [
-      'cookie', 'navigation', 'politique', 'connexion', 'accueil', 'script',
-      'fonction', 'javascript', 'css', 'html', 'aide', 'support', 'contact',
-      'mentions', 'légales', 'confidentialité', 'utilisation', 'site'
+  private getEnhancedFallbackJobs(): ScrapedJob[] {
+    // Enhanced fallback based on the actual HTML content provided with date-aware IDs
+    const jobsData = [
+      {
+        companyName: 'Air France',
+        jobTitle: 'Technicienne / Technicien Planning Maintenance Avion (H/F)',
+        location: 'Ile-de-France',
+        publishDate: '2025-01-15',
+        url: 'https://recrutement.airfrance.com/offre-de-emploi/emploi-technicienne-technicien-planning-maintenance-avion-f-h_22576.aspx',
+        source: 'airfrance',
+        contractType: 'CDI',
+        description: 'Domaine: Maintenance aéronautique'
+      },
+      {
+        companyName: 'Air France',
+        jobTitle: 'Ingénieur DevOps Junior Valbonne (H/F)',
+        location: 'Provence-Alpes-Côte d\'Azur',
+        publishDate: '2025-01-20',
+        url: 'https://recrutement.airfrance.com/offre-de-emploi/emploi-ingenieur-devops-junior-valbonne-f-h_22473.aspx',
+        source: 'airfrance',
+        contractType: 'CDI',
+        description: 'Domaine: Infrastructures & Production informatique'
+      },
+      {
+        companyName: 'Air France',
+        jobTitle: 'Ingénieur DevOps Junior Toulouse (H/F)',
+        location: 'Occitanie',
+        publishDate: '2025-01-22',
+        url: 'https://recrutement.airfrance.com/offre-de-emploi/emploi-ingenieur-devops-junior-toulouse-f-h_22459.aspx',
+        source: 'airfrance',
+        contractType: 'CDI',
+        description: 'Domaine: Infrastructures & Production informatique'
+      },
+      {
+        companyName: 'Air France',
+        jobTitle: 'Ingénieur DevOps Junior Toulouse (H/F)',
+        location: 'Occitanie',
+        publishDate: '2025-01-25', // Same job, same location, different date = separate listing
+        url: 'https://recrutement.airfrance.com/offre-de-emploi/emploi-ingenieur-devops-junior-toulouse-f-h_22459.aspx',
+        source: 'airfrance',
+        contractType: 'CDI',
+        description: 'Domaine: Infrastructures & Production informatique'
+      }
     ];
-    
-    const lowerText = text.toLowerCase();
-    return unwantedTerms.some(term => lowerText.includes(term));
+
+    // Generate date-aware IDs for each job
+    return jobsData.map(jobData => ({
+      ...jobData,
+      id: generateJobId(jobData.companyName, jobData.jobTitle, jobData.location, jobData.publishDate, jobData.url)
+    }));
   }
   
+  // ... (rest of the methods remain the same)
   private cleanJobTitle(title: string): string {
     return title
       .replace(/\s+/g, ' ')
       .replace(/^[-•·\s]+/, '')
       .replace(/\(H\/F\)|\(F\/H\)/gi, '(H/F)')
       .replace(/F\/H/gi, '(H/F)')
-      .replace(/\s*-\s*$/, '') // Remove trailing dashes
+      .replace(/\s*-\s*$/, '')
       .trim();
+  }
+  
+  private normalizeContractType(contractType: string): string {
+    const normalized = contractType.toLowerCase();
+    
+    if (normalized.includes('alternance') || normalized.includes('apprentissage')) {
+      return 'Alternance';
+    }
+    if (normalized.includes('stage') || normalized.includes('convention')) {
+      return 'Stage';
+    }
+    if (normalized.includes('cdd')) {
+      return 'CDD';
+    }
+    return 'CDI';
   }
   
   private getRecentDate(): string {
@@ -256,77 +259,18 @@ export class AirFranceScraper {
     return date.toISOString().split('T')[0];
   }
   
-  private getEnhancedFallbackJobs(): ScrapedJob[] {
-    // Based on typical Air France job listings
-    return [
-      {
-        id: `airfrance-fallback-${Date.now()}-1`,
-        companyName: 'Air France',
-        jobTitle: 'Technicienne / Technicien Planning Maintenance Avion (H/F)',
-        location: 'Ile-de-France',
-        publishDate: '2025-01-15',
-        url: 'https://recrutement.airfrance.com/',
-        source: 'airfrance',
-        contractType: 'CDI'
-      },
-      {
-        id: `airfrance-fallback-${Date.now()}-2`,
-        companyName: 'Air France',
-        jobTitle: 'Responsable Ressources Humaines (H/F)',
-        location: 'Ile-de-France',
-        publishDate: '2025-01-20',
-        url: 'https://recrutement.airfrance.com/',
-        source: 'airfrance',
-        contractType: 'CDI'
-      },
-      {
-        id: `airfrance-fallback-${Date.now()}-3`,
-        companyName: 'Air France',
-        jobTitle: 'Technicien avion (H/F)',
-        location: 'Ile-de-France',
-        publishDate: '2025-01-27',
-        url: 'https://recrutement.airfrance.com/',
-        source: 'airfrance',
-        contractType: 'CDI'
-      },
-      {
-        id: `airfrance-fallback-${Date.now()}-4`,
-        companyName: 'Air France',
-        jobTitle: 'Agent d\'Escale Commercial expérimenté Air France - CDI (H/F)',
-        location: 'Ile-de-France',
-        publishDate: '2025-01-10',
-        url: 'https://recrutement.airfrance.com/',
-        source: 'airfrance',
-        contractType: 'CDI'
-      },
-      {
-        id: `airfrance-fallback-${Date.now()}-5`,
-        companyName: 'Air France',
-        jobTitle: 'Chargé de Projets/Produits Informatique - Toulouse (H/F)',
-        location: 'Occitanie',
-        publishDate: '2025-01-12',
-        url: 'https://recrutement.airfrance.com/',
-        source: 'airfrance',
-        contractType: 'CDI'
-      }
-    ];
-  }
-  
   private removeDuplicates(jobs: ScrapedJob[]): ScrapedJob[] {
-    const seen = new Set();
+    const seen = new Set<string>();
     return jobs.filter(job => {
-      // Create a normalized key for comparison
-      const normalizedTitle = job.jobTitle.toLowerCase()
-        .replace(/[^\w\s]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      
-      const key = `${normalizedTitle}-${job.location}`;
-      if (seen.has(key)) {
+      if (seen.has(job.id)) {
         return false;
       }
-      seen.add(key);
+      seen.add(job.id);
       return true;
     });
+  }
+  
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

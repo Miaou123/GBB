@@ -15,10 +15,11 @@ A modern Next.js application that aggregates job offers from multiple French tec
 
 ## 🏢 Featured Companies
 
-- BPCE
 - Air France
-- Estreem
+
+## - In the work
 - Infomil
+- Estreem
 - Berger Levrault
 - Doxallia
 - Lyra Network

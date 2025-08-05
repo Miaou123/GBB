@@ -1,11 +1,12 @@
-// lib/services/jobService.ts
+// lib/services/jobService.ts - Fixed version with correct logging interface
 import { getDatabase } from '../mongodb';
 import { JobDocument, CompanyDocument, ScrapingLogDocument } from '../models/job';
+import { generateJobId, normalizeJobData } from '../utils/jobUtils';
 
 export class JobService {
   private async getJobsCollection() {
     const db = await getDatabase();
-    return db.collection<JobDocument>('jobs'); // Changed from 'job_offers' to 'jobs'
+    return db.collection<JobDocument>('jobs');
   }
 
   private async getCompaniesCollection() {
@@ -59,39 +60,88 @@ export class JobService {
     return results;
   }
 
-  // Upsert jobs (insert new, update existing)
+  // Improved upsert with better duplicate detection
   async upsertJobs(jobs: JobDocument[]) {
     const collection = await this.getJobsCollection();
-    const operations = jobs.map(job => ({
+    
+    // Normalize and deduplicate incoming jobs
+    const normalizedJobs = jobs.map(job => normalizeJobData(job));
+    const uniqueJobs = this.removeDuplicatesFromArray(normalizedJobs);
+    
+    console.log(`🔄 Processing ${jobs.length} jobs, ${uniqueJobs.length} unique after deduplication`);
+    
+    const operations = uniqueJobs.map(job => ({
       updateOne: {
-        filter: { id: job.id },
+        filter: { 
+          $or: [
+            { id: job.id },
+            // Also check for functional duplicates
+            {
+              companyName: job.companyName,
+              jobTitle: job.jobTitle,
+              location: job.location
+            }
+          ]
+        },
         update: {
           $set: {
             ...job,
             scrapedAt: new Date(),
-            isActive: true
+            isActive: true,
+            lastUpdated: new Date()
+          },
+          $setOnInsert: {
+            createdAt: new Date()
           }
         },
         upsert: true
       }
     }));
 
-    return await collection.bulkWrite(operations);
+    const result = await collection.bulkWrite(operations);
+    
+    console.log(`✅ Upsert complete: ${result.upsertedCount} new, ${result.modifiedCount} updated`);
+    
+    return result;
   }
 
-  // Mark jobs as inactive (for cleanup)
-  async markJobsInactive(companyName: string, activeJobIds: string[]) {
+  // Clean up old/inactive jobs
+  async cleanupOldJobs(companyName?: string, keepActiveIds?: string[]) {
     const collection = await this.getJobsCollection();
-    return await collection.updateMany(
-      {
-        companyName,
-        id: { $nin: activeJobIds },
-        isActive: true
-      },
-      {
-        $set: { isActive: false }
+    
+    const filter: any = {};
+    
+    if (companyName) {
+      filter.companyName = companyName;
+    }
+    
+    if (keepActiveIds?.length) {
+      filter.id = { $nin: keepActiveIds };
+    }
+    
+    // Mark as inactive instead of deleting
+    const result = await collection.updateMany(filter, {
+      $set: { 
+        isActive: false,
+        deactivatedAt: new Date()
       }
-    );
+    });
+    
+    console.log(`🧹 Cleanup: ${result.modifiedCount} jobs marked inactive`);
+    
+    return result;
+  }
+
+  // Remove duplicates from array
+  private removeDuplicatesFromArray(jobs: JobDocument[]): JobDocument[] {
+    const seen = new Set<string>();
+    return jobs.filter(job => {
+      if (seen.has(job.id)) {
+        return false;
+      }
+      seen.add(job.id);
+      return true;
+    });
   }
 
   // Get unique companies and locations for filters
@@ -103,40 +153,39 @@ export class JobService {
       collection.distinct('location', { isActive: true })
     ]);
 
-    return {
-      companies: companies.sort(),
-      locations: locations.sort()
-    };
+    return { companies, locations };
   }
 
-  // Log scraping activity
-  async logScraping(log: Omit<ScrapingLogDocument, '_id' | 'scrapedAt'>) {
+  // Log scraping activities - Fixed interface
+  async logScraping(log: {
+    companyName: string;
+    status: 'success' | 'failed' | 'partial';
+    jobsFound: number;
+    errorMessage?: string;
+    duration: number;
+  }) {
     const collection = await this.getLogsCollection();
     return await collection.insertOne({
       ...log,
-      scrapedAt: new Date()
+      scrapedAt: new Date() // Add scrapedAt automatically
     });
   }
 
-  // Get scraping statistics
-  async getScrapingStats() {
-    const logsCollection = await this.getLogsCollection();
-    const jobsCollection = await this.getJobsCollection();
-
-    const [totalJobs, lastScraping, companiesStats] = await Promise.all([
-      jobsCollection.countDocuments({ isActive: true }),
-      logsCollection.findOne({}, { sort: { scrapedAt: -1 } }),
-      jobsCollection.aggregate([
-        { $match: { isActive: true } },
-        { $group: { _id: '$companyName', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]).toArray()
+  // Get database statistics
+  async getStats() {
+    const collection = await this.getJobsCollection();
+    
+    const [totalJobs, activeJobs, companiesCount] = await Promise.all([
+      collection.countDocuments(),
+      collection.countDocuments({ isActive: true }),
+      collection.distinct('companyName', { isActive: true }).then(arr => arr.length)
     ]);
-
+    
     return {
       totalJobs,
-      lastScraping,
-      companiesStats
+      activeJobs,
+      inactiveJobs: totalJobs - activeJobs,
+      companiesCount
     };
   }
 }

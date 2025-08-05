@@ -1,3 +1,4 @@
+// app/page.tsx
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -10,7 +11,7 @@ import RefreshButton from './components/RefreshButton';
 
 export default function HomePage() {
   const [jobs, setJobs] = useState<JobOffer[]>([]);
-  const [allJobs, setAllJobs] = useState<JobOffer[]>([]); // Keep track of all jobs for filter options
+  const [allJobs, setAllJobs] = useState<JobOffer[]>([]);
   const [filteredJobs, setFilteredJobs] = useState<JobOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [scrapingLoading, setScrapingLoading] = useState(false);
@@ -77,7 +78,7 @@ export default function HomePage() {
     } finally {
       setScrapingLoading(false);
     }
-  }, [fetchJobsWithoutFilters]); // Added fetchJobsWithoutFilters dependency
+  }, [fetchJobsWithoutFilters]);
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -116,18 +117,6 @@ export default function HomePage() {
     }
   }, [filters]);
 
-  const debouncedSearch = useCallback(
-    (term: string, jobsList: JobOffer[]) => {
-      const filtered = jobsList.filter(job =>
-        job.companyName.toLowerCase().includes(term.toLowerCase()) ||
-        job.jobTitle.toLowerCase().includes(term.toLowerCase()) ||
-        job.location.toLowerCase().includes(term.toLowerCase())
-      );
-      setFilteredJobs(filtered);
-    },
-    []
-  );
-
   // Initial load: trigger scraping then fetch jobs
   useEffect(() => {
     const initializeData = async () => {
@@ -136,7 +125,7 @@ export default function HomePage() {
     };
     
     initializeData();
-  }, [triggerScraping]); // Added triggerScraping to dependencies
+  }, [triggerScraping]);
 
   // Handle filter changes
   useEffect(() => {
@@ -222,72 +211,52 @@ export default function HomePage() {
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
                   Recherche
                 </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    id="search"
-                    value={searchTerm}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    placeholder="Rechercher par entreprise, poste ou ville..."
-                    className="input-field pl-10"
-                  />
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </div>
-                </div>
+                <input
+                  type="text"
+                  id="search"
+                  value={searchTerm}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Rechercher par entreprise, poste ou lieu..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
               </div>
 
-              {/* Company Filter */}
+              {/* Company Filter - Using correct prop names */}
               <ClientFilter
                 title="Entreprises"
-                selectedItems={filters.companies}
                 allItems={uniqueCompanies}
+                selectedItems={filters.companies}
                 onChange={handleCompanyFilterChange}
               />
 
-              {/* Location Filter */}
+              {/* Location Filter - Using correct prop names */}
               <LocationFilter
                 title="Localisations"
-                selectedItems={filters.locations}
                 allItems={uniqueLocations}
+                selectedItems={filters.locations}
                 onChange={handleLocationFilterChange}
               />
+
+              {/* Export Button */}
+              <div className="card p-4">
+                <button
+                  onClick={handleExport}
+                  disabled={filteredJobs.length === 0}
+                  className={`w-full px-4 py-2 rounded-md font-medium transition-colors duration-200 ${
+                    filteredJobs.length === 0
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}
+                >
+                  📥 Exporter ({filteredJobs.length})
+                </button>
+              </div>
             </div>
           </aside>
 
           {/* Main content area */}
-          <div className="flex-1 space-y-6">
-            {/* Header with refresh and export buttons */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <RefreshButton 
-                onRefresh={handleRefresh}
-                loading={scrapingLoading || loading}
-                lastUpdated={lastUpdated}
-              />
-              
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={handleExport}
-                  disabled={filteredJobs.length === 0}
-                  className={`btn-outline inline-flex items-center ${
-                    filteredJobs.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Exporter CSV
-                </button>
-                
-                <div className="text-sm text-gray-600">
-                  {filteredJobs.length} offre{filteredJobs.length > 1 ? 's' : ''} sur {allJobs.length > 0 ? allJobs.length : jobs.length}
-                </div>
-              </div>
-            </div>
-
-            {/* Jobs table */}
+          <div className="flex-1">
+            {/* Jobs table with built-in pagination */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
               {scrapingLoading && (
                 <div className="p-4 bg-blue-50 border-b border-blue-200">
@@ -298,12 +267,10 @@ export default function HomePage() {
                 </div>
               )}
               
-              <div className="p-6">
-                <JobTable 
-                  jobs={filteredJobs} 
-                  loading={loading}
-                />
-              </div>
+              <JobTable 
+                jobs={filteredJobs} 
+                loading={loading}
+              />
             </div>
           </div>
         </div>

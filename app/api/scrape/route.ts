@@ -16,6 +16,15 @@ export async function POST(request: Request) {
     const scrapedJobs = await scraperService.scrapeAllJobs();
     
     if (scrapedJobs.length === 0) {
+      // Log the failed scraping attempt
+      await jobService.logScraping({
+        companyName: 'All Companies',
+        status: 'failed',
+        jobsFound: 0,
+        errorMessage: 'No jobs were scraped',
+        duration: Date.now() - startTime
+      });
+      
       return NextResponse.json({
         success: false,
         message: 'No jobs were scraped',
@@ -28,7 +37,7 @@ export async function POST(request: Request) {
     console.log(`💾 Saving ${scrapedJobs.length} jobs to database...`);
     const result = await jobService.upsertJobs(scrapedJobs);
     
-    // Log the scraping activity
+    // Log the successful scraping activity
     await jobService.logScraping({
       companyName: 'All Companies',
       status: 'success',
@@ -51,14 +60,20 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('❌ Scraping failed:', error);
     
+    const duration = Date.now() - Date.now();
+    
     // Log the failed scraping attempt
-    await jobService.logScraping({
-      companyName: 'All Companies',
-      status: 'failed',
-      jobsFound: 0,
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      duration: Date.now() - Date.now()
-    });
+    try {
+      await jobService.logScraping({
+        companyName: 'All Companies',
+        status: 'failed',
+        jobsFound: 0,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        duration: duration
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log scraping error:', logError);
+    }
     
     return NextResponse.json({
       success: false,
