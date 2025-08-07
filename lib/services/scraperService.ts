@@ -1,9 +1,10 @@
-// lib/services/scraperService.ts - Updated version
+// lib/services/scraperService.ts - Updated with Doxallia
 import { EstreemScraper } from '../scrapers/estreemScraper';
 import { InfomilScraper } from '../scrapers/infomilScraper';
 import { BPCEScraper } from '../scrapers/bpceScraper';
 import { AirFranceScraper } from '../scrapers/airfranceScraper';
 import { BergerLevraultScraper } from '../scrapers/bergerLevraultScraper';
+import { DoxalliaScraper } from '../scrapers/doxalliaScraper';
 import { PersistentCacheService } from './cacheService';
 
 export interface ScrapedJob {
@@ -35,6 +36,7 @@ export class ScraperService {
   private bpceScraper = new BPCEScraper();
   private airfranceScraper = new AirFranceScraper();
   private bergerLevraultScraper = new BergerLevraultScraper();
+  private doxalliaScraper = new DoxalliaScraper();
   private cacheService = new PersistentCacheService();
   
   // Company websites for error messages
@@ -43,7 +45,8 @@ export class ScraperService {
     'Air France': 'airfrance.jobs', 
     'Estreem': 'partecis.teamtailor.com',
     'Infomil': 'infomil.gestmax.fr',
-    'Berger Levrault': 'recrute.berger-levrault.com'
+    'Berger Levrault': 'recrute.berger-levrault.com',
+    'Doxallia': 'doxallia.com'
   };
   
   /**
@@ -83,13 +86,14 @@ export class ScraperService {
       scrapePromises.push(this.scrapeCompany('Estreem', this.estreemScraper));
       scrapePromises.push(this.scrapeCompany('Infomil', this.infomilScraper));
       scrapePromises.push(this.scrapeCompany('Berger Levrault', this.bergerLevraultScraper));
+      scrapePromises.push(this.scrapeCompany('Doxallia', this.doxalliaScraper));
       
       // Wait for all scrapers to complete
       const results = await Promise.allSettled(scrapePromises);
       
       // Collect successful results and errors
+      const companies = ['BPCE', 'Air France', 'Estreem', 'Infomil', 'Berger Levrault', 'Doxallia'];
       results.forEach((result, index) => {
-        const companies = ['BPCE', 'Air France', 'Estreem', 'Infomil', 'Berger Levrault'];
         const company = companies[index];
         
         if (result.status === 'fulfilled') {
@@ -145,7 +149,7 @@ export class ScraperService {
   /**
    * Get cache status for UI display
    */
-  getCacheStatus(): { cached: boolean; age?: number; jobCount?: number } {
+  getCacheStatus(): { cached: boolean; age?: number; jobCount?: number; remainingTime?: number } {
     return this.cacheService.getCacheStatus();
   }
   
