@@ -1,10 +1,11 @@
-// lib/services/scraperService.ts - Updated with Doxallia
+// lib/services/scraperService.ts - Updated with Lyra Network
 import { EstreemScraper } from '../scrapers/estreemScraper';
 import { InfomilScraper } from '../scrapers/infomilScraper';
 import { BPCEScraper } from '../scrapers/bpceScraper';
 import { AirFranceScraper } from '../scrapers/airfranceScraper';
 import { BergerLevraultScraper } from '../scrapers/bergerLevraultScraper';
 import { DoxalliaScraper } from '../scrapers/doxalliaScraper';
+import { LyraScraper } from '../scrapers/lyraScraper';
 import { PersistentCacheService } from './cacheService';
 
 export interface ScrapedJob {
@@ -37,6 +38,7 @@ export class ScraperService {
   private airfranceScraper = new AirFranceScraper();
   private bergerLevraultScraper = new BergerLevraultScraper();
   private doxalliaScraper = new DoxalliaScraper();
+  private lyraScraper = new LyraScraper();
   private cacheService = new PersistentCacheService();
   
   // Company websites for error messages
@@ -46,7 +48,8 @@ export class ScraperService {
     'Estreem': 'partecis.teamtailor.com',
     'Infomil': 'infomil.gestmax.fr',
     'Berger Levrault': 'recrute.berger-levrault.com',
-    'Doxallia': 'doxallia.com'
+    'Doxallia': 'doxallia.com',
+    'Lyra Network': 'lyra.com'
   };
   
   /**
@@ -87,12 +90,13 @@ export class ScraperService {
       scrapePromises.push(this.scrapeCompany('Infomil', this.infomilScraper));
       scrapePromises.push(this.scrapeCompany('Berger Levrault', this.bergerLevraultScraper));
       scrapePromises.push(this.scrapeCompany('Doxallia', this.doxalliaScraper));
+      scrapePromises.push(this.scrapeCompany('Lyra Network', this.lyraScraper));
       
       // Wait for all scrapers to complete
       const results = await Promise.allSettled(scrapePromises);
       
       // Collect successful results and errors
-      const companies = ['BPCE', 'Air France', 'Estreem', 'Infomil', 'Berger Levrault', 'Doxallia'];
+      const companies = ['BPCE', 'Air France', 'Estreem', 'Infomil', 'Berger Levrault', 'Doxallia', 'Lyra Network'];
       results.forEach((result, index) => {
         const company = companies[index];
         
