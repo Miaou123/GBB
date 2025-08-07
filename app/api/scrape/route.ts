@@ -1,6 +1,6 @@
-// app/api/jobs/route.ts
+// app/api/jobs/route.ts - Updated version
 import { NextResponse } from 'next/server';
-import { ScraperService, ScrapedJob } from '@/lib/services/scraperService';
+import { ScraperService } from '@/lib/services/scraperService';
 import { JobOffer, ApiResponse } from '@/lib/types';
 
 const scraperService = new ScraperService();
@@ -11,12 +11,29 @@ export async function GET(request: Request) {
     const companies = searchParams.get('companies')?.split(',').filter(Boolean) || [];
     const locations = searchParams.get('locations')?.split(',').filter(Boolean) || [];
     const search = searchParams.get('search') || '';
-    const forceRefresh = searchParams.get('refresh') === 'true';
+    const forceRefresh = searchParams.get('refresh') === 'true'; // Only true when user clicks "Actualiser"
 
     console.log('🔍 API: Fetching jobs with filters:', { companies, locations, search, forceRefresh });
+    console.log('🔍 DEBUG: refresh param value:', searchParams.get('refresh'));
+    console.log('🔍 DEBUG: forceRefresh boolean:', forceRefresh);
 
-    // Get all jobs from scrapers (use cache unless force refresh)
-    const scrapedJobs: ScrapedJob[] = await scraperService.getAllJobs(!forceRefresh);
+    // Get all jobs from scrapers
+    // IMPORTANT: Only use forceRefresh when explicitly requested
+    const scrapingResult = await scraperService.getAllJobs(forceRefresh);
+    
+    // Debug: Check what we got
+    console.log('🔍 Scraping result type:', typeof scrapingResult);
+    console.log('🔍 Scraping result keys:', Object.keys(scrapingResult));
+    
+    const scrapedJobs = scrapingResult.jobs;
+    const scrapingErrors = scrapingResult.errors;
+    
+    // Debug: Check if scrapedJobs is an array
+    console.log('🔍 scrapedJobs type:', typeof scrapedJobs, 'isArray:', Array.isArray(scrapedJobs));
+    
+    if (!Array.isArray(scrapedJobs)) {
+      throw new Error(`Expected scrapedJobs to be array, got: ${typeof scrapedJobs}`);
+    }
 
     // Convert scraped jobs to JobOffer format
     let jobOffers: JobOffer[] = scrapedJobs.map(job => ({
@@ -46,18 +63,19 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get cache status for debugging
+    // Get cache status for UI display
     const cacheStatus = scraperService.getCacheStatus();
     
     const response: ApiResponse = {
       jobs: jobOffers,
       lastUpdated: new Date().toISOString(),
       totalCount: jobOffers.length,
-      source: 'scraping',
-      cacheStatus // Add cache info for debugging
+      source: cacheStatus.cached ? 'persistent-cache' : 'fresh-scraping',
+      cacheStatus,
+      scrapingErrors
     };
 
-    console.log(`✅ API: Returning ${jobOffers.length} jobs (cache: ${cacheStatus.cached})`);
+    console.log(`✅ API: Returning ${jobOffers.length} jobs (cached: ${cacheStatus.cached}, age: ${cacheStatus.age}h)`);
     
     return NextResponse.json(response);
 
@@ -95,37 +113,14 @@ export async function GET(request: Request) {
       jobs: filteredJobs,
       lastUpdated: new Date().toISOString(),
       totalCount: filteredJobs.length,
-      source: 'mock-fallback'
+      source: 'mock-fallback',
+      scrapingErrors: [{
+        company: 'System',
+        error: 'All scrapers failed, using mock data',
+        website: 'system'
+      }]
     };
 
     return NextResponse.json(response);
-  }
-}
-
-// Optional: Add a cache management endpoint
-export async function DELETE(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const action = searchParams.get('action');
-    
-    if (action === 'clear-cache') {
-      scraperService.clearCache();
-      return NextResponse.json({ 
-        message: 'Cache cleared successfully',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    return NextResponse.json(
-      { error: 'Invalid action. Use ?action=clear-cache' },
-      { status: 400 }
-    );
-    
-  } catch (error) {
-    console.error('❌ Cache management error:', error);
-    return NextResponse.json(
-      { error: 'Failed to manage cache' },
-      { status: 500 }
-    );
   }
 }

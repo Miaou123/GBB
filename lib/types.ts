@@ -1,4 +1,4 @@
-// lib/types.ts
+// lib/types.ts - Updated version
 export interface JobOffer {
   id: string;
   companyName: string;
@@ -14,19 +14,6 @@ export interface FilterState {
   searchTerm: string;
 }
 
-export interface ApiResponse {
-  jobs: JobOffer[];
-  lastUpdated: string;
-  totalCount: number;
-  source: 'scraping' | 'mock-fallback';
-  cacheStatus?: {
-    cached: boolean;
-    age?: number;
-    jobCount?: number;
-    remainingTime?: number;
-  };
-}
-
 export interface FilterProps {
   selectedItems: string[];
   allItems: string[];
@@ -34,5 +21,23 @@ export interface FilterProps {
   title: string;
 }
 
-export type SortDirection = 'asc' | 'desc';
-export type SortField = 'companyName' | 'jobTitle' | 'location' | 'publishDate';
+export interface ScrapingError {
+  company: string;
+  error: string;
+  website: string;
+}
+
+export interface CacheStatus {
+  cached: boolean;
+  age?: number;
+  jobCount?: number;
+}
+
+export interface ApiResponse {
+  jobs: JobOffer[];
+  lastUpdated: string;
+  totalCount: number;
+  source: 'mock-fallback' | 'scraping' | 'persistent-cache' | 'fresh-scraping';
+  cacheStatus?: CacheStatus;
+  scrapingErrors?: ScrapingError[];
+}

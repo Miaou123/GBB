@@ -133,8 +133,6 @@ export class InfomilScraper {
         
         jobs.push(job);
         jobIndex++;
-        
-        console.log(`✅ Extracted: ${cleanTitle} - ${location} - ${formattedDate}`);
       }
     }
   }
@@ -179,7 +177,6 @@ export class InfomilScraper {
           const existingJob = jobs.find(j => j.id === job.id);
           if (!existingJob) {
             jobs.push(job);
-            console.log(`✅ Structured extraction: ${linkText} - ${location} - ${formattedDate}`);
           }
         }
       }

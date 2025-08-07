@@ -51,17 +51,13 @@ export class EstreemScraper {
             const $link = $(element);
             const href = $link.attr('href');
             const linkText = $link.text().trim();
-            
-            console.log(`🔗 Link ${index + 1}: "${linkText}" -> ${href}`);
-            
+
             // Check if this looks like a job link
             if (href && linkText && 
                 (href.includes('/jobs/') || href.includes('job')) &&
                 linkText.length > 10 &&
                 (linkText.includes('H/F') || linkText.includes('Manager') || linkText.includes('Engineer') || linkText.includes('Director'))) {
-              
-              console.log(`✅ Found job link: ${linkText} -> ${href}`);
-              
+
               // Extract job info from link text
               const jobTitle = this.cleanJobTitle(linkText);
               const fullUrl = href.startsWith('http') ? href : `${this.baseUrl}${href}`;

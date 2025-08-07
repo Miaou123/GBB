@@ -164,9 +164,6 @@ export class AirFranceScraper {
         };
         
         jobs.push(job);
-        
-        console.log(`✅ Extracted job: ${job.jobTitle} - ${job.location} (${job.contractType}) - ${job.publishDate}`);
-        
       } catch (error) {
         console.error(`❌ Error extracting job from element ${index}:`, error);
       }

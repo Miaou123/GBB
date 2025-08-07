@@ -2,178 +2,258 @@
 import axios from 'axios';
 import { ScrapedJob } from '../services/scraperService';
 
-interface BPCEJobRecord {
-  fields: {
-    intitule_poste?: string;
-    lieu_travail?: string;
-    date_publication?: string;
-    url_offre?: string;
-    type_contrat?: string;
-    secteur_activite?: string;
-    entreprise?: string;
-    description?: string;
-    niveau_etude?: string;
-    experience?: string;
-  };
-  recordid: string;
+interface BPCEApiResponse {
+  total_count: number;
+  results: BPCEJobRecord[];
 }
 
-interface BPCEApiResponse {
-  records: BPCEJobRecord[];
-  nhits: number;
+interface BPCEJobRecord {
+  title: string;
+  lastmodifieddate: string;
+  referencenumber: string;
+  apply_url: string;
+  url: string;
+  company: string;
+  city: string;
+  state: string;
+  country: string;
+  description: string;
+  category: string;
+  jobcode: string;
+  jobtype: string;
+  jobindustry: string;
+  organization: string;
+  step_up_academy: string;
+  manager_bpce: string;
+  nom_recruteur_principal: string;
+  email_recruteur_principal: string;
+  geo_point_2d: {
+    lon: number;
+    lat: number;
+  };
 }
 
 export class BPCEScraper {
-  private readonly apiUrl = 'https://bpce.opendatasoft.com/api/records/1.0/search/';
+  private readonly baseUrl = 'https://bpce.opendatasoft.com/api/explore/v2.1';
   private readonly dataset = 'groupe-bpce-offres-emploi';
   
   async scrapeJobs(): Promise<ScrapedJob[]> {
     try {
-      console.log('🔍 Scraping BPCE jobs from Open Data API...');
+      console.log('🔍 Scraping BPCE jobs from Open Data API v2.1...');
       
-      const response = await axios.get<BPCEApiResponse>(this.apiUrl, {
-        params: {
-          dataset: this.dataset,
-          rows: 100, // Get up to 100 jobs
-          // Remove the problematic sort parameter
-          facet: ['lieu_travail', 'type_contrat', 'secteur_activite'],
-        },
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-        },
-        timeout: 15000
-      });
+      const allJobs: ScrapedJob[] = [];
+      let offset = 0;
+      const limit = 100; // Fetch 100 jobs per request
+      let hasMore = true;
       
-      console.log(`📄 BPCE API response received, found ${response.data.nhits} total jobs`);
-      
-      const jobs: ScrapedJob[] = [];
-      
-      response.data.records.forEach((record, index) => {
-        const fields = record.fields;
+      while (hasMore) {
+        const url = `${this.baseUrl}/catalog/datasets/${this.dataset}/records`;
         
-        // Extract job information
-        const jobTitle = fields.intitule_poste || 'Poste non spécifié';
-        const location = fields.lieu_travail || 'Non spécifié';
-        const company = fields.entreprise || 'BPCE';
-        const publishDate = fields.date_publication;
-        const jobUrl = fields.url_offre || 'https://recrutement.bpce.fr/';
-        const contractType = fields.type_contrat;
-        const sector = fields.secteur_activite;
-        const description = fields.description;
+        const params = {
+          limit: limit,
+          offset: offset,
+          timezone: 'UTC'
+        };
         
-        // Only add jobs with minimum required information
-        if (jobTitle && jobTitle !== 'Poste non spécifié') {
-          jobs.push({
-            id: `bpce-${record.recordid}`,
-            companyName: company,
-            jobTitle: this.cleanJobTitle(jobTitle),
-            location: this.cleanLocation(location),
-            publishDate: publishDate ? this.formatDate(publishDate) : undefined,
-            url: jobUrl,
-            source: 'bpce',
-            description: description ? this.cleanDescription(description) : sector,
-            contractType: contractType
-          });
+        console.log(`📥 Fetching BPCE jobs: offset ${offset}, limit ${limit}`);
+        
+        const response = await axios.get<BPCEApiResponse>(url, {
+          params,
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (!response.data || !response.data.results) {
+          throw new Error('Invalid response structure from BPCE API');
         }
-      });
+        
+        const records = response.data.results;
+        const totalCount = response.data.total_count;
+        
+        console.log(`📄 BPCE API response: ${records.length} records (${offset + 1}-${offset + records.length} of ${totalCount})`);
+        
+        if (records.length === 0) {
+          hasMore = false;
+          break;
+        }
+        
+        // Process each job record
+        for (const record of records) {
+          const job = this.extractJobData(record);
+          
+          if (job && this.isValidJob(job)) {
+            allJobs.push(job);
+          }
+        }
+        
+        // Check if we should continue fetching
+        offset += limit;
+        hasMore = records.length === limit && offset < totalCount;
+        
+        // Safety check to prevent infinite loops
+        if (offset > 10000) {
+          console.log('⚠️ BPCE: Reached safety limit of 10,000 records, stopping pagination');
+          break;
+        }
+        
+        // Rate limiting: small delay between requests
+        if (hasMore) {
+          await this.delay(300); // 300ms delay
+        }
+      }
       
-      // Remove duplicates based on title and location
-      const uniqueJobs = this.removeDuplicates(jobs);
+      // Remove duplicates
+      const uniqueJobs = this.removeDuplicates(allJobs);
       
-      console.log(`✅ BPCE: Found ${uniqueJobs.length} jobs`);
+      if (uniqueJobs.length === 0) {
+        throw new Error('No valid jobs found in BPCE API response');
+      }
+      
+      console.log(`✅ BPCE: Successfully scraped ${uniqueJobs.length} unique jobs`);
       return uniqueJobs;
       
     } catch (error) {
       console.error('❌ Error scraping BPCE:', error);
-      console.log('🔄 Using fallback jobs for BPCE...');
-      return this.getFallbackJobs();
+      
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 429) {
+          console.error('Rate limit exceeded for BPCE API');
+        } else if (error.response && error.response.status >= 400) {
+          console.error(`BPCE API error: ${error.response.status} - ${error.response.statusText}`);
+        } else if (error.code === 'ECONNABORTED') {
+          console.error('BPCE API request timeout');
+        } else if (!error.response) {
+          console.error('Network error - no response received from BPCE API');
+        }
+      }
+      
+      // Re-throw the error instead of returning fallback data
+      throw new Error(`BPCE scraping failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
   
-  private cleanJobTitle(title: string): string {
-    return title
-      .replace(/\s+/g, ' ')
-      .replace(/^[-•·\s]+/, '')
-      .trim();
+  private extractJobData(record: BPCEJobRecord): ScrapedJob {
+    // Generate unique ID from reference number or create one
+    const jobId = record.referencenumber ? 
+      `bpce-${record.referencenumber}` : 
+      `bpce-${this.generateHashId(record.title, record.city, record.lastmodifieddate)}`;
+    
+    // Format location from city and state
+    const location = this.formatLocation(record.city, record.state);
+    
+    // Parse the date
+    const publishDate = this.formatDate(record.lastmodifieddate);
+    
+    // Clean and truncate description
+    const description = this.cleanDescription(record.description);
+    
+    // For BPCE jobs, include the actual hiring company in the job title
+    const actualCompany = record.organization || record.company;
+    const enhancedJobTitle = actualCompany && actualCompany !== 'Groupe BPCE' 
+      ? `${this.cleanText(record.title)} - ${actualCompany}`
+      : this.cleanText(record.title);
+    
+    return {
+      id: jobId,
+      companyName: 'BPCE', // Always use BPCE as the source
+      jobTitle: enhancedJobTitle, // Include actual company in job title
+      location: location,
+      publishDate: publishDate,
+      url: record.apply_url || record.url,
+      source: 'bpce-opendata',
+      description: description,
+      contractType: record.jobtype || 'CDI'
+    };
   }
   
-  private cleanLocation(location: string): string {
-    return location
-      .replace(/\s+/g, ' ')
-      .replace(/^[-•·\s]+/, '')
-      .trim();
+  private formatLocation(city: string, state: string): string {
+    if (city && state) {
+      return `${city} (${state})`;
+    } else if (city) {
+      return city;
+    } else if (state) {
+      return state;
+    } else {
+      return 'France';
+    }
   }
   
-  private cleanDescription(description: string): string {
-    return description
-      .replace(/<[^>]*>/g, '') // Remove HTML tags
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 200); // Limit description length
-  }
-  
-  private formatDate(dateStr: string): string {
+  private formatDate(dateString: string): string {
+    if (!dateString) {
+      return new Date().toISOString().split('T')[0];
+    }
+    
     try {
-      // Handle different date formats that might come from the API
-      const date = new Date(dateStr);
+      // Handle the format "07/08/2025 6:10:05 AM"
+      const date = new Date(dateString);
       if (isNaN(date.getTime())) {
-        return dateStr; // Return original if can't parse
+        return new Date().toISOString().split('T')[0];
       }
-      return date.toISOString().split('T')[0]; // Return YYYY-MM-DD format
-    } catch (error) {
-      return dateStr;
+      return date.toISOString().split('T')[0];
+    } catch {
+      return new Date().toISOString().split('T')[0];
     }
   }
   
-  private getFallbackJobs(): ScrapedJob[] {
-    // Fallback jobs based on typical BPCE offerings
-    return [
-      {
-        id: `bpce-fallback-${Date.now()}-1`,
-        companyName: 'BPCE',
-        jobTitle: 'Développeur Full Stack (H/F)',
-        location: 'Paris',
-        publishDate: '2025-08-01',
-        url: 'https://recrutement.bpce.fr/',
-        source: 'bpce',
-        contractType: 'CDI',
-        description: 'Développement d\'applications bancaires'
-      },
-      {
-        id: `bpce-fallback-${Date.now()}-2`,
-        companyName: 'BPCE',
-        jobTitle: 'Analyste Risques (H/F)',
-        location: 'Lyon',
-        publishDate: '2025-08-01',
-        url: 'https://recrutement.bpce.fr/',
-        source: 'bpce',
-        contractType: 'CDI',
-        description: 'Analyse et gestion des risques bancaires'
-      },
-      {
-        id: `bpce-fallback-${Date.now()}-3`,
-        companyName: 'BPCE',
-        jobTitle: 'Chef de Projet Digital (H/F)',
-        location: 'Nantes',
-        publishDate: '2025-08-01',
-        url: 'https://recrutement.bpce.fr/',
-        source: 'bpce',
-        contractType: 'CDI',
-        description: 'Pilotage de projets de transformation digitale'
-      }
-    ];
+  private cleanDescription(description: string): string | undefined {
+    if (!description) return undefined;
+    
+    return this.cleanText(description).substring(0, 200);
+  }
+  
+  private cleanText(text: string): string {
+    if (!text) return '';
+    
+    return text
+      .replace(/<[^>]*>/g, '') // Remove HTML tags
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .replace(/^[-•·\s]+/, '') // Remove leading bullets and spaces
+      .trim();
+  }
+  
+  private generateHashId(title: string, city: string, date: string): string {
+    const baseString = `${title}-${city}-${date}`.toLowerCase();
+    
+    // Simple hash function for consistent IDs
+    let hash = 0;
+    for (let i = 0; i < baseString.length; i++) {
+      const char = baseString.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    return Math.abs(hash).toString();
+  }
+  
+  private isValidJob(job: ScrapedJob): boolean {
+    // Validate essential job information
+    return !!(
+      job.jobTitle && 
+      job.jobTitle.length > 3 && 
+      job.location &&
+      job.companyName
+    );
   }
   
   private removeDuplicates(jobs: ScrapedJob[]): ScrapedJob[] {
-    const seen = new Set();
+    const seen = new Set<string>();
     return jobs.filter(job => {
-      const key = `${job.jobTitle}-${job.location}`;
+      // Create a unique key based on title, company, and location
+      const key = `${job.jobTitle.toLowerCase()}-${job.companyName.toLowerCase()}-${job.location.toLowerCase()}`;
+      
       if (seen.has(key)) {
         return false;
       }
+      
       seen.add(key);
       return true;
     });
+  }
+  
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
