@@ -239,7 +239,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
     return (
       <div className="text-center py-12">
         <div className="loading-spinner w-8 h-8 mx-auto mb-4"></div>
-        <p className="text-gray-600">Chargement des offres d'emploi...</p>
+        <p className="text-gray-600">Chargement des offres d&apos;emploi...</p>
       </div>
     );
   }
@@ -338,7 +338,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:text-blue-800 hover:underline transition-colors duration-200"
                   >
-                    Voir l'offre
+                    Voir l&apos;offre
                     <svg className="w-3 h-3 ml-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>

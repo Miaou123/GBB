@@ -148,7 +148,7 @@ const ScraperStatusDashboard: React.FC<ScraperStatusProps> = ({
               <h3 className="font-medium">{getOverallStatusText()}</h3>
               {!isLoading && (
                 <p className="text-sm opacity-80">
-                  {totalJobs} offres d'emploi collectées • 
+                  {totalJobs} offres d&apos;emploi collectées • 
                   Dernière vérification: {new Date(lastUpdated).toLocaleString('fr-FR')}
                 </p>
               )}
@@ -230,7 +230,7 @@ const ScraperStatusDashboard: React.FC<ScraperStatusProps> = ({
           </div>
           
           <div className="mt-3 text-sm text-red-600">
-            💡 Ces erreurs peuvent être temporaires. Essayez de rafraîchir les données ou contactez l'administrateur si le problème persiste.
+            💡 Ces erreurs peuvent être temporaires. Essayez de rafraîchir les données ou contactez l&apos;administrateur si le problème persiste.
           </div>
         </div>
       )}
@@ -245,7 +245,7 @@ const ScraperStatusDashboard: React.FC<ScraperStatusProps> = ({
             </span>
           </div>
           <div className="text-sm text-green-700 mt-1">
-            {totalJobs} offres d'emploi ont été collectées avec succès depuis {allScrapers.length} sources.
+            {totalJobs} offres d&apos;emploi ont été collectées avec succès depuis {allScrapers.length} sources.
           </div>
         </div>
       )}

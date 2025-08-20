@@ -109,7 +109,7 @@ export default function Home() {
                 🚀 Go Get Business
               </h1>
               <p className="text-gray-600 mt-1">
-                Offres d'emploi Tech en France
+                Offres d&apos;emploi Tech en France
               </p>
             </div>
             

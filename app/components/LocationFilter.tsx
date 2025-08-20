@@ -116,7 +116,7 @@ export default function LocationFilter({ selectedItems, allItems, onChange, titl
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {filteredItems.length === 0 ? (
           <div className="text-sm text-gray-500 text-center py-4">
-            Aucun résultat trouvé pour "{searchTerm}"
+            Aucun résultat trouvé pour &quot;{searchTerm}&quot;
           </div>
         ) : (
           filteredItems.sort().map((item) => (
