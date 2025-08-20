@@ -1,7 +1,7 @@
-// app/components/JobTable.tsx
+// app/components/JobTable.tsx - FIXED VERSION
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { JobOffer, SortField, SortDirection } from '@/lib/types';
 import { usePagination } from '@/lib/hooks/usePagination';
 import Pagination from './Pagination';
@@ -13,36 +13,150 @@ interface JobTableProps {
 }
 
 export default function JobTable({ jobs, loading }: JobTableProps) {
+  console.log('🚨 JOBTABLE COMPONENT LOADED - FIXED VERSION');
+  
   const [sortField, setSortField] = useState<SortField>('companyName');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  // Sort jobs first, then paginate
-  const sortedJobs = [...jobs].sort((a, b) => {
-    let aValue = '';
-    let bValue = '';
-
-    switch (sortField) {
-      case 'companyName':
-        aValue = a.companyName;
-        bValue = b.companyName;
-        break;
-      case 'jobTitle':
-        aValue = a.jobTitle;
-        bValue = b.jobTitle;
-        break;
-      case 'location':
-        aValue = a.location;
-        bValue = b.location;
-        break;
-      case 'publishDate':
-        aValue = a.publishDate || '';
-        bValue = b.publishDate || '';
-        break;
-    }
-
-    const result = aValue.localeCompare(bValue);
-    return sortDirection === 'asc' ? result : -result;
-  });
+  // Memoized sorted jobs to prevent unnecessary re-sorts
+  const sortedJobs = useMemo(() => {
+    console.log(`🔄 USEMEMO TRIGGERED: Sorting ${jobs.length} jobs by ${sortField} (${sortDirection})`);
+    
+    const sorted = [...jobs].sort((a, b) => {
+      let result = 0;
+      
+      switch (sortField) {
+        case 'companyName':
+          result = a.companyName.localeCompare(b.companyName, 'fr', { 
+            numeric: true, 
+            sensitivity: 'base' 
+          });
+          // Secondary sort by job title if companies are the same
+          if (result === 0) {
+            result = a.jobTitle.localeCompare(b.jobTitle, 'fr');
+          }
+          break;
+          
+        case 'jobTitle':
+          result = a.jobTitle.localeCompare(b.jobTitle, 'fr', { 
+            numeric: true, 
+            sensitivity: 'base' 
+          });
+          // Secondary sort by company if job titles are the same
+          if (result === 0) {
+            result = a.companyName.localeCompare(b.companyName, 'fr');
+          }
+          break;
+          
+        case 'location':
+          result = a.location.localeCompare(b.location, 'fr', { 
+            numeric: true, 
+            sensitivity: 'base' 
+          });
+          // Secondary sort by company if locations are the same
+          if (result === 0) {
+            result = a.companyName.localeCompare(b.companyName, 'fr');
+          }
+          break;
+          
+        case 'publishDate':
+          console.log(`📅 Sorting by publishDate, direction: ${sortDirection}`);
+          
+          const aDate = a.publishDate;
+          const bDate = b.publishDate;
+          
+          // If both have no date, use secondary sort by company name
+          if (!aDate && !bDate) {
+            result = a.companyName.localeCompare(b.companyName, 'fr');
+            break;
+          }
+          
+          // Put items without dates as oldest (earliest dates in asc, last in desc)
+          if (!aDate && !bDate) {
+            result = a.companyName.localeCompare(b.companyName, 'fr');
+            break;
+          }
+          if (!aDate) {
+            // Treat missing dates as very old (year 1900)
+            result = -1;
+            break;
+          }
+          if (!bDate) {
+            // Treat missing dates as very old (year 1900)
+            result = 1;
+            break;
+          }
+          
+          // Parse dates - handle different formats
+          let dateA: Date;
+          let dateB: Date;
+          
+          try {
+            // Handle DD/MM/YYYY format common in French dates
+            if (aDate.includes('/')) {
+              const [day, month, year] = aDate.split('/');
+              dateA = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            } else {
+              dateA = new Date(aDate);
+            }
+          } catch (e) {
+            console.warn(`❌ Invalid date A: "${aDate}"`);
+            result = 1; // Put invalid dates at end
+            break;
+          }
+          
+          try {
+            if (bDate.includes('/')) {
+              const [day, month, year] = bDate.split('/');
+              dateB = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            } else {
+              dateB = new Date(bDate);
+            }
+          } catch (e) {
+            console.warn(`❌ Invalid date B: "${bDate}"`);
+            result = -1; // Put invalid dates at end
+            break;
+          }
+          
+          // Validate parsed dates
+          const isValidA = !isNaN(dateA.getTime());
+          const isValidB = !isNaN(dateB.getTime());
+          
+          if (!isValidA && !isValidB) {
+            result = a.companyName.localeCompare(b.companyName, 'fr');
+            break;
+          }
+          if (!isValidA) {
+            // Treat invalid dates as very old (year 1900)
+            result = -1;
+            break;
+          }
+          if (!isValidB) {
+            // Treat invalid dates as very old (year 1900)
+            result = 1;
+            break;
+          }
+          
+          // Compare valid dates
+          result = dateA.getTime() - dateB.getTime();
+          
+          // If dates are identical, use secondary sort by job title
+          if (result === 0) {
+            result = a.jobTitle.localeCompare(b.jobTitle, 'fr');
+          }
+          break;
+          
+        default:
+          result = 0;
+      }
+      
+      // Apply sort direction
+      return sortDirection === 'asc' ? result : -result;
+    });
+    
+    console.log(`✅ USEMEMO COMPLETE: Sorted ${sorted.length} jobs`);
+    return sorted;
+  }, [jobs, sortField, sortDirection]);
 
   // Use pagination hook
   const {
@@ -57,28 +171,51 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
     initialPageSize: 100
   });
 
-  const handleSort = (field: SortField) => {
+  // DEBUG: Log pagination state when data changes
+  console.log(`🔢 PAGINATION DEBUG:`, {
+    sortedJobsLength: sortedJobs.length,
+    currentPage,
+    pageSize,
+    totalPages,
+    paginatedDataLength: paginatedData.length,
+    startIndex: (currentPage - 1) * pageSize,
+    endIndex: Math.min(currentPage * pageSize, sortedJobs.length)
+  });
+
+  const handleSort = useCallback((field: SortField) => {
+    console.log(`🔘 Sort clicked: ${field} (current: ${sortField}, direction: ${sortDirection})`);
+    
     if (field === sortField) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      // Same field clicked - toggle direction
+      const newDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      console.log(`↔️ Toggling sort direction: ${sortDirection} → ${newDirection}`);
+      setSortDirection(newDirection);
     } else {
+      // Different field clicked - set new field and reset to asc
+      console.log(`🔄 Changing sort field: ${sortField} → ${field}`);
       setSortField(field);
       setSortDirection('asc');
     }
+    
     // Reset to first page when sorting changes
+    console.log(`📄 Resetting to page 1`);
     setCurrentPage(1);
-  };
+  }, [sortField, sortDirection, setCurrentPage]);
 
-  const formatDate = (dateString?: string) => {
+  const formatDate = useCallback((dateString?: string) => {
     if (!dateString) return 'N/A';
     try {
-      return new Date(dateString).toLocaleDateString('fr-FR');
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'N/A';
+      return date.toLocaleDateString('fr-FR');
     } catch {
       return 'N/A';
     }
-  };
+  }, []);
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) {
+      // Not the current sort field - show neutral icon
       return (
         <svg className="w-4 h-4 ml-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 2v12m0 0l4-4m-4 4l-4-4" />
@@ -86,6 +223,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
       );
     }
     
+    // Current sort field - show direction
     return sortDirection === 'asc' ? (
       <svg className="w-4 h-4 ml-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4l6 6h8l6-6" />
@@ -123,6 +261,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
           <span className="text-sm text-gray-700 font-medium">
             {sortedJobs.length} offres trouvées
           </span>
+
         </div>
         <PageSizeSelector
           pageSize={pageSize}
@@ -137,7 +276,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
           <thead className="table-header">
             <tr>
               <th 
-                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200"
+                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200 select-none"
                 onClick={() => handleSort('companyName')}
               >
                 <div className="flex items-center">
@@ -146,7 +285,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
                 </div>
               </th>
               <th 
-                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200"
+                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200 select-none"
                 onClick={() => handleSort('jobTitle')}
               >
                 <div className="flex items-center">
@@ -155,7 +294,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
                 </div>
               </th>
               <th 
-                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200"
+                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200 select-none"
                 onClick={() => handleSort('publishDate')}
               >
                 <div className="flex items-center">
@@ -164,7 +303,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
                 </div>
               </th>
               <th 
-                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200"
+                className="px-6 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors duration-200 select-none"
                 onClick={() => handleSort('location')}
               >
                 <div className="flex items-center">
@@ -179,7 +318,7 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {paginatedData.map((job, index) => (
-              <tr key={job.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              <tr key={`${job.id}-${index}`} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                 <td className="table-cell font-medium">
                   {job.companyName}
                 </td>

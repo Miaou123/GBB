@@ -1,4 +1,4 @@
-// lib/types.ts - Updated version
+// lib/types.ts - Updated version with remainingTime and sorting types
 export interface JobOffer {
   id: string;
   companyName: string;
@@ -31,6 +31,7 @@ export interface CacheStatus {
   cached: boolean;
   age?: number;
   jobCount?: number;
+  remainingTime?: number; // Added this property
 }
 
 export interface ApiResponse {
@@ -41,3 +42,7 @@ export interface ApiResponse {
   cacheStatus?: CacheStatus;
   scrapingErrors?: ScrapingError[];
 }
+
+// Sorting types for JobTable
+export type SortField = 'companyName' | 'jobTitle' | 'location' | 'publishDate';
+export type SortDirection = 'asc' | 'desc';
