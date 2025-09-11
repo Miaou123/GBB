@@ -155,6 +155,9 @@ export class BPCEScraper {
     const enhancedJobTitle = actualCompany && actualCompany !== 'Groupe BPCE' 
       ? `${this.cleanText(record.title)} - ${actualCompany}`
       : this.cleanText(record.title);
+
+    // ✅ TESTER D'ABORD LE CHAMP URL DE L'API
+    const bpceUrl = this.getBPCEUrl(record);
     
     return {
       id: jobId,
@@ -162,11 +165,66 @@ export class BPCEScraper {
       jobTitle: enhancedJobTitle, // Include actual company in job title
       location: location,
       publishDate: publishDate,
-      url: record.apply_url || record.url,
+      url: bpceUrl, // ✅ Utilise maintenant l'URL BPCE au lieu de l'URL externe
       source: 'bpce-opendata',
       description: description,
       contractType: record.jobtype || 'CDI'
     };
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE : Essaie d'utiliser l'URL de l'API ou construit une URL BPCE
+   */
+  private getBPCEUrl(record: BPCEJobRecord): string {
+    // Option 1: Vérifier si le champ 'url' pointe vers recrutement.bpce.fr
+    if (record.url && record.url.includes('recrutement.bpce.fr')) {
+      console.log(`✅ URL BPCE directe trouvée: ${record.url}`);
+      return record.url;
+    }
+    
+    // Option 2: Vérifier le champ apply_url (au cas où)
+    if (record.apply_url && record.apply_url.includes('recrutement.bpce.fr')) {
+      console.log(`✅ Apply URL BPCE trouvée: ${record.apply_url}`);
+      return record.apply_url;
+    }
+    
+    // Option 3: Construire l'URL nous-mêmes (fallback)
+    console.log(`⚠️ Aucune URL BPCE directe, construction pour: ${record.title}`);
+    return this.buildBPCEUrl(record);
+  }
+
+  /**
+   * ✅ Construit l'URL vers la page BPCE officielle (fallback)
+   * Format simple observé : https://recrutement.bpce.fr/job/[slug-du-titre]
+   * Exemple : https://recrutement.bpce.fr/job/application-production-support-equities
+   */
+  private buildBPCEUrl(record: BPCEJobRecord): string {
+    const baseUrl = 'https://recrutement.bpce.fr/job';
+    
+    // Créer un slug simple à partir du titre uniquement
+    const titleSlug = this.createSlug(record.title);
+    
+    return `${baseUrl}/${titleSlug}`;
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE : Crée un slug URL-friendly à partir d'un texte
+   */
+  private createSlug(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[àáâäå]/g, 'a')
+      .replace(/[èéêë]/g, 'e')
+      .replace(/[ìíîï]/g, 'i')
+      .replace(/[òóôöø]/g, 'o')
+      .replace(/[ùúûü]/g, 'u')
+      .replace(/[ýÿ]/g, 'y')
+      .replace(/[ñ]/g, 'n')
+      .replace(/[ç]/g, 'c')
+      .replace(/[^\w\s-]/g, '') // Supprime les caractères spéciaux
+      .replace(/\s+/g, '-') // Remplace les espaces par des tirets
+      .replace(/-+/g, '-') // Supprime les tirets multiples
+      .replace(/^-|-$/g, ''); // Supprime les tirets en début/fin
   }
   
   private formatLocation(city: string, state: string): string {
