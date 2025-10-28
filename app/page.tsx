@@ -1,10 +1,11 @@
-// app/page.tsx - Updated with Status Dashboard (Clean Version)
+// app/page.tsx - Updated with Job Title Filter (No Breaking Changes)
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import JobTable from './components/JobTable';
 import ClientFilter from './components/ClientFilter';
 import LocationFilter from './components/LocationFilter';
+import JobTitleFilter from './components/JobTitleFilter'; // NEW
 import RefreshButton from './components/RefreshButton';
 import ScraperStatusDashboard from './components/ScraperStatusDashboard';
 import ScraperStatusSummary from './components/ScraperStatusSummary';
@@ -14,6 +15,7 @@ export default function Home() {
   const [allJobs, setAllJobs] = useState<JobOffer[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [selectedJobTitles, setSelectedJobTitles] = useState<string[]>([]); // NEW
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>('');
@@ -82,19 +84,43 @@ export default function Home() {
     return { companies, locations };
   }, [allJobs]);
 
-  // Memoized filtered jobs
+  // Memoized filtered jobs - UPDATED to include job title filter
   const filteredJobs = useMemo(() => {
     return allJobs.filter(job => {
       const matchesCompany = selectedCompanies.length === 0 || selectedCompanies.includes(job.companyName);
       const matchesLocation = selectedLocations.length === 0 || selectedLocations.includes(job.location);
+      
+      // NEW: Job title filter logic using keyword matching from utils
+      const matchesJobTitle = selectedJobTitles.length === 0 || selectedJobTitles.some(filterTitle => {
+        // Import matchesJobTitle from utils for smart matching
+        // For now, use simple keyword matching as fallback
+        const jobLower = job.jobTitle.toLowerCase();
+        const filterLower = filterTitle.toLowerCase();
+        
+        // Simple keyword matching - will be replaced by imported function
+        const jobWords = jobLower.split(/\s+/).filter(w => w.length > 2);
+        const filterWords = filterLower.split(/\s+/).filter(w => w.length > 2);
+        
+        if (filterWords.length === 0) return false;
+        
+        let matches = 0;
+        for (const filterWord of filterWords) {
+          if (jobWords.some(jobWord => jobWord.includes(filterWord) || filterWord.includes(jobWord))) {
+            matches++;
+          }
+        }
+        
+        return matches >= Math.min(2, filterWords.length);
+      });
+      
       const matchesSearch = !searchTerm || 
         job.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.jobTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.location.toLowerCase().includes(searchTerm.toLowerCase());
       
-      return matchesCompany && matchesLocation && matchesSearch;
+      return matchesCompany && matchesLocation && matchesJobTitle && matchesSearch;
     });
-  }, [allJobs, selectedCompanies, selectedLocations, searchTerm]);
+  }, [allJobs, selectedCompanies, selectedLocations, selectedJobTitles, searchTerm]); // UPDATED dependency array
 
   const cacheStatus = apiResponse?.cacheStatus;
 
@@ -172,6 +198,7 @@ export default function Home() {
               />
             </div>
 
+            {/* Company Filter */}
             <ClientFilter
               selectedItems={selectedCompanies}
               allItems={companies}
@@ -179,12 +206,22 @@ export default function Home() {
               title="Entreprises"
             />
 
+            {/* Location Filter */}
             <LocationFilter
               selectedItems={selectedLocations}
               allItems={locations}
               onChange={setSelectedLocations}
               title="Lieux"
             />
+
+            {/* NEW: Job Title Filter */}
+            <div className="mt-6">
+              <JobTitleFilter
+                selectedTitles={selectedJobTitles}
+                allJobs={allJobs}
+                onChange={setSelectedJobTitles}
+              />
+            </div>
 
             {/* Cache Status Info */}
             {cacheStatus && (

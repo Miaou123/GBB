@@ -1,4 +1,5 @@
-// lib/types.ts - Updated version with remainingTime and sorting types
+// lib/types.ts - UPDATED VERSION with job title filter support
+
 export interface JobOffer {
   id: string;
   companyName: string;
@@ -11,6 +12,7 @@ export interface JobOffer {
 export interface FilterState {
   companies: string[];
   locations: string[];
+  jobTitles: string[];  // NEW: Added job title filter
   searchTerm: string;
 }
 
@@ -19,6 +21,19 @@ export interface FilterProps {
   allItems: string[];
   onChange: (items: string[]) => void;
   title: string;
+}
+
+// NEW: Interface for job title filter
+export interface JobTitleFilterProps {
+  selectedTitles: string[];
+  allJobs: JobOffer[];
+  onChange: (titles: string[]) => void;
+}
+
+// NEW: Interface for job categories
+export interface JobCategory {
+  name: string;
+  titles: string[];
 }
 
 export interface ScrapingError {
@@ -31,7 +46,7 @@ export interface CacheStatus {
   cached: boolean;
   age?: number;
   jobCount?: number;
-  remainingTime?: number; // Added this property
+  remainingTime?: number;
 }
 
 export interface ApiResponse {
@@ -46,3 +61,10 @@ export interface ApiResponse {
 // Sorting types for JobTable
 export type SortField = 'companyName' | 'jobTitle' | 'location' | 'publishDate';
 export type SortDirection = 'asc' | 'desc';
+
+// NEW: Job matching types
+export type MatchingOptions = {
+  minKeywords?: number;      // Minimum matching keywords required (default: 2)
+  caseSensitive?: boolean;   // Case sensitive matching (default: false)
+  exactMatch?: boolean;      // Require exact match instead of keyword-based (default: false)
+};
