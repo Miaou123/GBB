@@ -78,9 +78,9 @@ export default function JobTable({ jobs, loading }: JobTableProps) {
           }
           if (!aDate) {
             // Treat missing dates as very old (year 1900)
-            result = -1;
+            result = -1;  // ✅ CORRECT - treats N/A as oldest
             break;
-          }
+        }
           if (!bDate) {
             // Treat missing dates as very old (year 1900)
             result = 1;
