@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 interface JobTitleFilterProps {
   selectedTitles: string[];
@@ -238,18 +238,10 @@ export default function JobTitleFilter({ selectedTitles, allJobs, onChange }: Jo
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-      <div className="p-3 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-800">Type de Poste</h3>
-          <span className="text-xs text-gray-500">
-            ({selectedTitles.length} sélectionné{selectedTitles.length > 1 ? 's' : ''})
-          </span>
-        </div>
-        
-        {/* Search bar */}
-        <div className="relative mb-2">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+    <div>
+      {/* Search bar */}
+      <div className="relative mb-3">
+        <MagnifyingGlassIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
           <input
             type="text"
             placeholder="Rechercher (FR/EN)..."
@@ -260,7 +252,7 @@ export default function JobTitleFilter({ selectedTitles, allJobs, onChange }: Jo
         </div>
 
         {/* Select/Deselect buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-3">
           <button
             onClick={selectAll}
             className="flex-1 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
@@ -274,10 +266,9 @@ export default function JobTitleFilter({ selectedTitles, allJobs, onChange }: Jo
             Tout désélectionner
           </button>
         </div>
-      </div>
 
-      {/* Categories */}
-      <div className="max-h-96 overflow-y-auto">
+        {/* Categories */}
+        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-md">
         {filteredCategories.map(category => {
           const isExpanded = expandedCategories.has(category.name);
           const selectedCount = category.titles.filter(t => selectedTitles.includes(getTitleValue(t))).length;
@@ -291,9 +282,9 @@ export default function JobTitleFilter({ selectedTitles, allJobs, onChange }: Jo
               >
                 <div className="flex items-center gap-2">
                   {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                    <ChevronDownIcon className="h-4 w-4 text-gray-500" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                    <ChevronRightIcon className="h-4 w-4 text-gray-500" />
                   )}
                   <span className="text-sm font-medium text-gray-700">
                     {category.name}
