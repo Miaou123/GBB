@@ -1,11 +1,11 @@
-// app/page.tsx - Updated with Job Title Filter (No Breaking Changes)
+// app/page.tsx - Left sidebar layout
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import JobTable from './components/JobTable';
 import ClientFilter from './components/ClientFilter';
 import LocationFilter from './components/LocationFilter';
-import JobTitleFilter from './components/JobTitleFilter'; // NEW
+import JobTitleFilter from './components/JobTitleFilter';
 import RefreshButton from './components/RefreshButton';
 import ScraperStatusDashboard from './components/ScraperStatusDashboard';
 import ScraperStatusSummary from './components/ScraperStatusSummary';
@@ -15,12 +15,20 @@ export default function Home() {
   const [allJobs, setAllJobs] = useState<JobOffer[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
-  const [selectedJobTitles, setSelectedJobTitles] = useState<string[]>([]); // NEW
+  const [selectedJobTitles, setSelectedJobTitles] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
   const [showStatusDashboard, setShowStatusDashboard] = useState(false);
+  
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // Filter section collapsed states
+  const [companyFilterOpen, setCompanyFilterOpen] = useState(true);
+  const [locationFilterOpen, setLocationFilterOpen] = useState(true);
+  const [jobTitleFilterOpen, setJobTitleFilterOpen] = useState(true);
 
   const fetchJobs = useCallback(async (forceRefresh: boolean = false) => {
     setLoading(true);
@@ -47,230 +55,347 @@ export default function Home() {
       }
       
       const data: ApiResponse = await response.json();
-      
-      setApiResponse(data);
-      setAllJobs(data.jobs || []);
+      setAllJobs(data.jobs);
       setLastUpdated(data.lastUpdated);
-      
-      console.log('✅ Jobs loaded:', data.jobs?.length || 0, 'jobs');
-      
+      setApiResponse(data);
     } catch (error) {
-      console.error('❌ Error fetching jobs:', error);
+      console.error('Error fetching jobs:', error);
       setAllJobs([]);
     } finally {
       setLoading(false);
     }
   }, [selectedCompanies, selectedLocations, searchTerm]);
 
-  // Initial load
   useEffect(() => {
     fetchJobs();
-  }, []);
-
-  // Handle refresh
-  const handleRefresh = useCallback(async () => {
-    await fetchJobs(true);
   }, [fetchJobs]);
 
-  // Handle status dashboard retry (test scrapers)
-  const handleStatusRetry = useCallback(async () => {
+  const handleRefresh = async () => {
     await fetchJobs(true);
-  }, [fetchJobs]);
+  };
 
-  // Memoized filter options
-  const { companies, locations } = useMemo(() => {
-    const companies = Array.from(new Set(allJobs.map(job => job.companyName))).sort();
-    const locations = Array.from(new Set(allJobs.map(job => job.location))).sort();
-    return { companies, locations };
+  // Extract unique companies, locations, and job titles
+  const uniqueCompanies = useMemo(() => {
+    return Array.from(new Set(allJobs.map(job => job.companyName))).sort();
   }, [allJobs]);
 
-  // Memoized filtered jobs - UPDATED to include job title filter
+  const uniqueLocations = useMemo(() => {
+    return Array.from(new Set(allJobs.map(job => job.location))).sort();
+  }, [allJobs]);
+
+  // Helper function to normalize text for matching (handles plurals, accents, etc.)
+  const normalizeForMatching = (text: string): string => {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/s\b/g, '') // Remove trailing 's' (plurals)
+      .replace(/[^a-z0-9\s]/g, ' ') // Remove special characters
+      .replace(/\s+/g, ' ') // Normalize spaces
+      .trim();
+  };
+
+  // Map of French titles to their English equivalents for matching
+  const titleTranslations: Record<string, string[]> = {
+    'Administrateur systèmes': ['System Administrator', 'Administrateur systèmes'],
+    'Ingénieur systèmes': ['System Engineer', 'Ingénieur systèmes'],
+    'Architecte systèmes': ['System Architect', 'Architecte systèmes'],
+    'Expert systèmes': ['System Expert', 'Expert systèmes'],
+    'Administrateur réseaux': ['Network Administrator', 'Administrateur réseaux'],
+    'Ingénieur réseaux': ['Network Engineer', 'Ingénieur réseaux'],
+    'Architecte réseaux': ['Network Architect', 'Architecte réseaux'],
+    'Expert réseaux': ['Network Expert', 'Expert réseaux'],
+    'Administrateur base de données': ['Database Administrator', 'DBA', 'Administrateur base de données'],
+    'Ingénieur base de données': ['Database Engineer', 'Ingénieur base de données'],
+    'Architecte base de données': ['Database Architect', 'Architecte base de données'],
+    'Ingénieur cloud': ['Cloud Engineer', 'Ingénieur cloud'],
+    'Architecte cloud': ['Cloud Architect', 'Architecte cloud'],
+    'Ingénieur DevOps': ['DevOps Engineer', 'Ingénieur DevOps'],
+    'Ingénieur fiabilité': ['Site Reliability Engineer', 'SRE', 'Ingénieur fiabilité'],
+    'Ingénieur sécurité': ['Security Engineer', 'Ingénieur sécurité'],
+  };
+
+  // Filter jobs based on selections
   const filteredJobs = useMemo(() => {
     return allJobs.filter(job => {
       const matchesCompany = selectedCompanies.length === 0 || selectedCompanies.includes(job.companyName);
       const matchesLocation = selectedLocations.length === 0 || selectedLocations.includes(job.location);
       
-      // NEW: Job title filter logic using keyword matching from utils
-      const matchesJobTitle = selectedJobTitles.length === 0 || selectedJobTitles.some(filterTitle => {
-        // Import matchesJobTitle from utils for smart matching
-        // For now, use simple keyword matching as fallback
-        const jobLower = job.jobTitle.toLowerCase();
-        const filterLower = filterTitle.toLowerCase();
+      // Job title matching: check if the job title CONTAINS any of the selected titles (French or English)
+      const matchesJobTitle = selectedJobTitles.length === 0 || selectedJobTitles.some(selectedTitle => {
+        const normalizedJobTitle = normalizeForMatching(job.jobTitle);
+        const normalizedSelectedTitle = normalizeForMatching(selectedTitle);
         
-        // Simple keyword matching - will be replaced by imported function
-        const jobWords = jobLower.split(/\s+/).filter(w => w.length > 2);
-        const filterWords = filterLower.split(/\s+/).filter(w => w.length > 2);
-        
-        if (filterWords.length === 0) return false;
-        
-        let matches = 0;
-        for (const filterWord of filterWords) {
-          if (jobWords.some(jobWord => jobWord.includes(filterWord) || filterWord.includes(jobWord))) {
-            matches++;
-          }
+        // Check if normalized job title contains the normalized selected title
+        if (normalizedJobTitle.includes(normalizedSelectedTitle)) {
+          return true;
         }
         
-        return matches >= Math.min(2, filterWords.length);
+        // Also check English equivalents if available
+        const englishEquivalents = titleTranslations[selectedTitle] || [];
+        return englishEquivalents.some(englishTitle => {
+          const normalizedEnglishTitle = normalizeForMatching(englishTitle);
+          return normalizedJobTitle.includes(normalizedEnglishTitle);
+        });
       });
       
       const matchesSearch = !searchTerm || 
-        job.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.jobTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        job.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.location.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
       return matchesCompany && matchesLocation && matchesJobTitle && matchesSearch;
     });
-  }, [allJobs, selectedCompanies, selectedLocations, selectedJobTitles, searchTerm]); // UPDATED dependency array
+  }, [allJobs, selectedCompanies, selectedLocations, selectedJobTitles, searchTerm]);
 
   const cacheStatus = apiResponse?.cacheStatus;
 
+  const resetFilters = () => {
+    setSelectedCompanies([]);
+    setSelectedLocations([]);
+    setSelectedJobTitles([]);
+    setSearchTerm('');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                🚀 Go Get Business
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Offres d&apos;emploi Tech en France
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <ScraperStatusSummary
-                scrapingErrors={apiResponse?.scrapingErrors || []}
-                isLoading={loading}
-                onClick={() => setShowStatusDashboard(!showStatusDashboard)}
-              />
-              
+      {/* Status Dashboard Modal */}
+      {showStatusDashboard && apiResponse && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">État des scrapers</h2>
               <button
-                onClick={() => setShowStatusDashboard(!showStatusDashboard)}
-                className={`px-4 py-2 rounded-lg border transition-colors ${
-                  showStatusDashboard 
-                    ? 'bg-blue-600 text-white border-blue-600' 
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
+                onClick={() => setShowStatusDashboard(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
               >
-                {showStatusDashboard ? '📊 Masquer les détails' : '🔍 Voir les détails'}
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Status Dashboard */}
-      {showStatusDashboard && (
-        <div className="bg-gray-100 border-b border-gray-200">
-          <div className="mx-auto px-6 py-6">
-            <ScraperStatusDashboard
-              scrapingErrors={apiResponse?.scrapingErrors || []}
-              totalJobs={allJobs.length}
-              lastUpdated={lastUpdated || new Date().toISOString()}
-              isLoading={loading}
-              onRetry={handleStatusRetry}
-            />
+            <div className="p-6">
+              <ScraperStatusDashboard
+                scrapingErrors={apiResponse.scrapingErrors || []}
+                totalJobs={allJobs.length}
+                lastUpdated={lastUpdated}
+                isLoading={loading}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      <div className="flex">
-        {/* Sidebar Filters */}
-        <div className="w-80 bg-white shadow-sm border-r border-gray-200 h-screen sticky top-0 overflow-y-auto">
-          <div className="p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">
-              🔍 Filtres
-            </h2>
-
-            {/* Search Bar */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Recherche
-              </label>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Rechercher un poste, entreprise..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              />
+      <div className="flex h-screen">
+        {/* Left Sidebar - Filters */}
+        <aside className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ${
+          sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-80'
+        }`}>
+          {/* Sidebar Header */}
+          <div className="p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-900">Filtres</h2>
+              <button
+                onClick={resetFilters}
+                disabled={selectedCompanies.length === 0 && selectedLocations.length === 0 && selectedJobTitles.length === 0 && !searchTerm}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  selectedCompanies.length === 0 && selectedLocations.length === 0 && selectedJobTitles.length === 0 && !searchTerm
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-red-50 text-red-700 hover:bg-red-100'
+                }`}
+              >
+                ✖ Réinitialiser
+              </button>
             </div>
 
-            {/* Company Filter */}
-            <ClientFilter
-              selectedItems={selectedCompanies}
-              allItems={companies}
-              onChange={setSelectedCompanies}
-              title="Entreprises"
+            {/* Search Input */}
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="🔎 Rechercher..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
+          </div>
 
-            {/* Location Filter */}
-            <LocationFilter
-              selectedItems={selectedLocations}
-              allItems={locations}
-              onChange={setSelectedLocations}
-              title="Lieux"
-            />
+          {/* Scrollable Filters */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-            {/* NEW: Job Title Filter */}
-            <div className="mt-6">
-              <JobTitleFilter
-                selectedTitles={selectedJobTitles}
-                allJobs={allJobs}
-                onChange={setSelectedJobTitles}
-              />
+                        {/* Job Title Filter - Collapsible */}
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setJobTitleFilterOpen(!jobTitleFilterOpen)}
+                className="w-full px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between"
+              >
+                <span className="text-sm font-semibold text-gray-800">
+                  Type de poste
+                </span>
+                <div className="flex items-center gap-2">
+                  {selectedJobTitles.length > 0 && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                      {selectedJobTitles.length}
+                    </span>
+                  )}
+                  <svg className={`w-4 h-4 text-gray-500 transition-transform ${jobTitleFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+              {jobTitleFilterOpen && (
+                <div className="p-3">
+                  <JobTitleFilter
+                    selectedTitles={selectedJobTitles}
+                    allJobs={allJobs}
+                    onChange={setSelectedJobTitles}
+                  />
+                </div>
+              )}
+            </div>
+            {/* Company Filter - Collapsible */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setCompanyFilterOpen(!companyFilterOpen)}
+                className="w-full px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between"
+              >
+                <span className="text-sm font-semibold text-gray-800">
+                  Entreprise
+                </span>
+                <div className="flex items-center gap-2">
+                  {selectedCompanies.length > 0 && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                      {selectedCompanies.length}
+                    </span>
+                  )}
+                  <svg className={`w-4 h-4 text-gray-500 transition-transform ${companyFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+              {companyFilterOpen && (
+                <div className="p-3">
+                  <ClientFilter
+                    selectedItems={selectedCompanies}
+                    allItems={uniqueCompanies}
+                    onChange={setSelectedCompanies}
+                    title=""
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Cache Status Info */}
-            {cacheStatus && (
-              <div className="mt-6 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            {/* Location Filter - Collapsible */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setLocationFilterOpen(!locationFilterOpen)}
+                className="w-full px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between"
+              >
+                <span className="text-sm font-semibold text-gray-800">
+                  Localisation
+                </span>
+                <div className="flex items-center gap-2">
+                  {selectedLocations.length > 0 && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                      {selectedLocations.length}
+                    </span>
+                  )}
+                  <svg className={`w-4 h-4 text-gray-500 transition-transform ${locationFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+              {locationFilterOpen && (
+                <div className="p-3">
+                  <LocationFilter
+                    selectedItems={selectedLocations}
+                    allItems={uniqueLocations}
+                    onChange={setSelectedLocations}
+                    title=""
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sidebar Footer - Status Info */}
+          {cacheStatus && apiResponse && (
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <div className="space-y-2">
+                <ScraperStatusSummary
+                  scrapingErrors={apiResponse.scrapingErrors || []}
+                  isLoading={loading}
+                  onClick={() => setShowStatusDashboard(true)}
+                />
                 <div className="text-xs text-gray-600">
                   {cacheStatus.cached ? (
-                    <span>
-                      📋 Données en cache ({cacheStatus.jobCount} jobs, 
-                      mise à jour il y a {cacheStatus.age}s, 
-                      expire dans {cacheStatus.remainingTime}s)
-                    </span>
+                    <span>📋 Cache: {cacheStatus.jobCount} jobs ({Math.round((cacheStatus.age || 0) / 60)}min)</span>
                   ) : (
-                    <span>🔄 Données fraîches depuis le scraping</span>
+                    <span>🔄 Données fraîches</span>
                   )}
                 </div>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+        </aside>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Top Actions Bar */}
-          <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
+        {/* Toggle Sidebar Button */}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white border border-gray-300 rounded-r-lg p-2 hover:bg-gray-50 transition-all shadow-md"
+          style={{ left: sidebarCollapsed ? '0' : '320px' }}
+        >
+          <svg
+            className={`w-4 h-4 text-gray-600 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+
+        {/* Main Content Area */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          {/* Top Bar */}
+          <div className="bg-white border-b border-gray-200 px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <RefreshButton onRefresh={handleRefresh} loading={loading} />
-                {lastUpdated && (
-                  <span className="text-sm text-gray-500">
-                    Dernière mise à jour : {new Date(lastUpdated).toLocaleString('fr-FR')}
-                  </span>
-                )}
+                <h1 className="text-xl font-semibold text-gray-900">
+                  <span className="text-blue-600">{filteredJobs.length}</span> offres d&apos;emploi Tech en France
+                </h1>
               </div>
               
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-600">
-                  {loading ? 'Chargement...' : `${filteredJobs.length} offres sur ${allJobs.length}`}
-                </span>
+              <div className="flex items-center gap-3">
+                {lastUpdated && (
+                  <span className="text-sm text-gray-500">
+                    Mise à jour : {new Date(lastUpdated).toLocaleString('fr-FR', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                )}
+                <RefreshButton onRefresh={handleRefresh} loading={loading} />
+                {apiResponse && (
+                  <button
+                    onClick={() => setShowStatusDashboard(true)}
+                    className="text-sm text-gray-600 hover:text-gray-900 transition-colors px-3 py-2"
+                  >
+                    🔍 Détails
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Job Table Content */}
-          <div className="flex-1 p-6">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          {/* Job Table - Scrollable */}
+          <div className="flex-1 overflow-auto p-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
               <JobTable jobs={filteredJobs} loading={loading} />
             </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );

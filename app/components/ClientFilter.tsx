@@ -1,4 +1,4 @@
-// app/components/ClientFilter.tsx
+// app/components/ClientFilter.tsx - No header version
 'use client';
 
 import { useState } from 'react';
@@ -15,17 +15,14 @@ export default function ClientFilter({ selectedItems, allItems, onChange, title 
 
   const handleItemToggle = (item: string) => {
     if (selectedItems.includes(item)) {
-      // Remove item from selection
       const newSelection = selectedItems.filter(selected => selected !== item);
       onChange(newSelection);
     } else {
-      // Add item to selection
       onChange([...selectedItems, item]);
     }
   };
 
   const handleSelectAll = () => {
-    // Select all filtered items (or all items if no search)
     const itemsToSelect = searchTerm ? filteredItems : allItems;
     const newSelection = [...new Set([...selectedItems, ...itemsToSelect])];
     onChange(newSelection);
@@ -33,11 +30,9 @@ export default function ClientFilter({ selectedItems, allItems, onChange, title 
 
   const handleSelectNone = () => {
     if (searchTerm) {
-      // Remove only filtered items from selection
       const newSelection = selectedItems.filter(item => !filteredItems.includes(item));
       onChange(newSelection);
     } else {
-      // Remove all items
       onChange([]);
     }
   };
@@ -47,15 +42,7 @@ export default function ClientFilter({ selectedItems, allItems, onChange, title 
   const noneFilteredSelected = visibleSelectedCount === 0;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        <span className="text-xs text-gray-500">
-          ({selectedItems.length}/{allItems.length})
-        </span>
-      </div>
-
+    <div>
       {/* Search Bar */}
       <div className="relative mb-3">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -63,7 +50,7 @@ export default function ClientFilter({ selectedItems, allItems, onChange, title 
         </div>
         <input
           type="text"
-          placeholder={`Rechercher dans ${title.toLowerCase()}...`}
+          placeholder="Rechercher..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -81,7 +68,7 @@ export default function ClientFilter({ selectedItems, allItems, onChange, title 
       {/* Search Results Info */}
       {searchTerm && (
         <div className="text-xs text-gray-500 mb-2">
-          {filteredItems.length} résultat{filteredItems.length > 1 ? 's' : ''} trouvé{filteredItems.length > 1 ? 's' : ''}
+          {filteredItems.length} résultat{filteredItems.length > 1 ? 's' : ''}
           {filteredItems.length !== allItems.length && ` sur ${allItems.length}`}
         </div>
       )}
@@ -105,58 +92,52 @@ export default function ClientFilter({ selectedItems, allItems, onChange, title 
           className={`text-xs px-3 py-1 rounded-md transition-colors duration-200 ${
             noneFilteredSelected
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
           }`}
         >
           {searchTerm ? 'Désélectionner résultats' : 'Tout désélectionner'}
         </button>
       </div>
-      
-      {/* Options List */}
-      <div className="space-y-2 max-h-64 overflow-y-auto">
+
+      {/* Scrollable Items List */}
+      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
         {filteredItems.length === 0 ? (
-          <div className="text-sm text-gray-500 text-center py-4">
-            Aucun résultat trouvé pour &quot;{searchTerm}&quot;
+          <div className="p-4 text-center text-sm text-gray-500">
+            Aucun résultat trouvé
           </div>
         ) : (
-          filteredItems.sort().map((item) => (
-            <label 
-              key={item} 
-              className="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-50 cursor-pointer transition-colors duration-200"
-            >
-              <input
-                type="checkbox"
-                checked={selectedItems.includes(item)}
-                onChange={() => handleItemToggle(item)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded transition-colors duration-200"
-              />
-              <span className="text-sm text-gray-700 flex-1">
-                {searchTerm ? (
-                  // Highlight search term
-                  <span dangerouslySetInnerHTML={{
-                    __html: item.replace(
-                      new RegExp(searchTerm, 'gi'),
-                      (match) => `<mark class="bg-yellow-200 px-1 rounded">${match}</mark>`
-                    )
-                  }} />
-                ) : (
-                  item
-                )}
-              </span>
-            </label>
-          ))
+          <div className="divide-y divide-gray-200">
+            {filteredItems.map((item, index) => {
+              const isSelected = selectedItems.includes(item);
+              return (
+                <label
+                  key={`${item}-${index}`}
+                  className={`flex items-center p-3 cursor-pointer hover:bg-gray-50 transition-colors duration-150 ${
+                    isSelected ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleItemToggle(item)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded cursor-pointer"
+                  />
+                  <span className={`ml-3 text-sm flex-1 ${isSelected ? 'text-blue-900 font-medium' : 'text-gray-700'}`}>
+                    {item}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Clear search when no results */}
-      {filteredItems.length === 0 && searchTerm && (
-        <div className="mt-2">
-          <button
-            onClick={() => setSearchTerm('')}
-            className="text-xs text-blue-600 hover:text-blue-800 underline"
-          >
-            Effacer la recherche
-          </button>
+      {/* Selected items summary */}
+      {selectedItems.length > 0 && !searchTerm && (
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <div className="text-xs text-gray-600">
+            <span className="font-medium">{selectedItems.length}</span> élément{selectedItems.length > 1 ? 's' : ''} sélectionné{selectedItems.length > 1 ? 's' : ''}
+          </div>
         </div>
       )}
     </div>

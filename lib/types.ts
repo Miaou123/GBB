@@ -1,4 +1,4 @@
-// lib/types.ts - UPDATED VERSION with job title filter support
+// lib/types.ts - Complete type definitions
 
 export interface JobOffer {
   id: string;
@@ -7,12 +7,15 @@ export interface JobOffer {
   location: string;
   publishDate?: string;
   url: string;
+  source?: string;
+  contractType?: string;
+  description?: string;
 }
 
 export interface FilterState {
   companies: string[];
   locations: string[];
-  jobTitles: string[];  // NEW: Added job title filter
+  jobTitles: string[];
   searchTerm: string;
 }
 
@@ -23,14 +26,12 @@ export interface FilterProps {
   title: string;
 }
 
-// NEW: Interface for job title filter
 export interface JobTitleFilterProps {
   selectedTitles: string[];
   allJobs: JobOffer[];
   onChange: (titles: string[]) => void;
 }
 
-// NEW: Interface for job categories
 export interface JobCategory {
   name: string;
   titles: string[];
@@ -40,6 +41,21 @@ export interface ScrapingError {
   company: string;
   error: string;
   website: string;
+}
+
+export interface ScraperStatus {
+  company: string;
+  website: string;
+  status: 'success' | 'error' | 'loading';
+  jobCount?: number;
+  error?: string;
+}
+
+export interface CacheInfo {
+  isFromCache: boolean;
+  age: number;
+  jobCount: number;
+  remainingTime: number;
 }
 
 export interface CacheStatus {
@@ -55,16 +71,49 @@ export interface ApiResponse {
   totalCount: number;
   source: 'mock-fallback' | 'scraping' | 'persistent-cache' | 'fresh-scraping';
   cacheStatus?: CacheStatus;
+  cacheInfo?: CacheInfo;
   scrapingErrors?: ScrapingError[];
+  scraperStatuses?: ScraperStatus[];
 }
 
 // Sorting types for JobTable
 export type SortField = 'companyName' | 'jobTitle' | 'location' | 'publishDate';
 export type SortDirection = 'asc' | 'desc';
 
-// NEW: Job matching types
 export type MatchingOptions = {
-  minKeywords?: number;      // Minimum matching keywords required (default: 2)
-  caseSensitive?: boolean;   // Case sensitive matching (default: false)
-  exactMatch?: boolean;      // Require exact match instead of keyword-based (default: false)
+  minKeywords?: number;
+  caseSensitive?: boolean;
+  exactMatch?: boolean;
 };
+
+// Component prop types
+export interface ClientFilterProps {
+  companies: string[];
+  selectedCompanies: string[];
+  onCompanyChange: (companies: string[]) => void;
+}
+
+export interface LocationFilterProps {
+  locations: string[];
+  selectedLocations: string[];
+  onLocationChange: (locations: string[]) => void;
+}
+
+export interface JobTitleFilterComponentProps {
+  jobTitles: string[];
+  selectedJobTitles: string[];
+  onJobTitleChange: (jobTitles: string[]) => void;
+}
+
+export interface RefreshButtonProps {
+  onRefresh: () => void | Promise<void>;
+  loading: boolean;
+}
+
+export interface ScraperStatusDashboardProps {
+  scraperStatuses: ScraperStatus[];
+}
+
+export interface ScraperStatusSummaryProps {
+  scraperStatuses: ScraperStatus[];
+}
