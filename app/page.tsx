@@ -315,26 +315,6 @@ export default function Home() {
               )}
             </div>
           </div>
-
-          {/* Sidebar Footer - Status Info */}
-          {cacheStatus && apiResponse && (
-            <div className="p-4 border-t border-gray-200 bg-gray-50">
-              <div className="space-y-2">
-                <ScraperStatusSummary
-                  scrapingErrors={apiResponse.scrapingErrors || []}
-                  isLoading={loading}
-                  onClick={() => setShowStatusDashboard(true)}
-                />
-                <div className="text-xs text-gray-600">
-                  {cacheStatus.cached ? (
-                    <span>📋 Cache: {cacheStatus.jobCount} jobs ({Math.round((cacheStatus.age || 0) / 60)}min)</span>
-                  ) : (
-                    <span>🔄 Données fraîches</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </aside>
 
         {/* Toggle Sidebar Button */}
